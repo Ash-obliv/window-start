@@ -1,0 +1,95 @@
+[package]
+name = "yian-launcher"
+version = "26.8.13"
+edition = "2021"
+authors = ["QQ202173661"]
+description = "亦安快速启动 - lightweight drag-and-launch desktop launcher"
+license = "MIT"
+rust-version = "1.70"
+
+[profile.release]
+opt-level = 3
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[profile.release-size]
+inherits = "release"
+opt-level = "z"
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
+
+[dependencies]
+# backend-winit：窗口与事件循环
+# unstable-winit-030：接收系统拖放文件事件
+# renderer-femtovg：使用 OpenGL，支持加载系统字体
+# renderer-software：软件渲染降级
+slint = { version = "1.10", default-features = false, features = ["std", "compat-1-2", "backend-winit", "unstable-winit-030", "renderer-femtovg", "renderer-software"] }
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+anyhow = "1.0"
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp", "ico", "bmp"] }
+chrono = "0.4"
+dunce = "1.0"
+winreg = "0.52"
+tray-icon = "0.19"
+global-hotkey = "0.6"
+winit = { version = "0.30", default-features = false }
+raw-window-handle = "0.6"
+url = "2.5"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
+rfd = "0.15"
+
+[patch.crates-io]
+# 修复混合 DPI 多显示器下 WM_DPICHANGED 误判导致窗口尺寸不断变大（winit #4041 / #4600）
+winit = { path = "vendor/winit" }
+
+[target.'cfg(windows)'.dependencies]
+everything-ipc = "0.1.4"
+windows = { version = "0.58", features = [
+    "implement",
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_Ole",
+    "Win32_System_LibraryLoader",
+    "Win32_System_Memory",
+    "Win32_System_Registry",
+    "Win32_System_ProcessStatus",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_UI_HiDpi",
+    "Win32_UI_Shell",
+    "Win32_UI_Shell_Common",
+    "Win32_UI_Shell_PropertiesSystem",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Controls",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Storage_FileSystem",
+    "Win32_Graphics_Dwm",
+    "Win32_Security",
+] }
+windows-sys = { version = "0.52", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_Com",
+    "Win32_System_Com_StructuredStorage",
+    "Win32_System_DataExchange",
+    "Win32_System_Memory",
+    "Win32_System_Ole",
+    "Win32_UI_Shell",
+    "Win32_UI_WindowsAndMessaging",
+] }
+windows-core = "0.58"
+
+[build-dependencies]
+slint-build = "1.10"
+# Windows：将 ico.ico 嵌入 exe（任务栏/资源管理器图标）；仅在目标为 Windows 时在 build.rs 中调用
+winresource = "0.1"
+# 构建时将 ICO 内 PNG 条目重写为 BMP，避免 rc.exe 报 RC2175（PNG-in-ICO 不被视为「3.00」格式）
+ico = "0.3"
+image = { version = "0.25", default-features = false, features = ["png", "bmp", "ico", "jpeg"] }

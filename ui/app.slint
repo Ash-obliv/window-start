@@ -1,0 +1,2919 @@
+export struct AppItem {
+    id: string,
+    name: string,
+    icon: image,
+    path: string,
+    category-id: string,
+    args: string,
+    sort-order: int,
+    pinned: bool,
+}
+
+/// 计算机（Everything）搜索结果列表行
+export struct FileHitItem {
+    id: string,
+    name: string,
+    path: string,
+    location: string,
+    modified: string,
+    attributes: string,
+}
+
+export struct CategoryItem {
+    id: string,
+    name: string,
+    color: brush,
+    sort-order: int,
+    has-password: bool,
+}
+
+import { SettingsSheet } from "settings_widgets.slint";
+import { ScrollView } from "std-widgets.slint";
+
+// 标题栏按钮：Path 矢量图标（统一 viewbox），杜绝字体字框/baseline 差异导致不齐
+component CaptionButton inherits Rectangle {
+    // 0 = 设置（三线） 1 = 最大化（空心方框） 2 = 关闭（叉）
+    in property <int> icon-kind;
+    in property <bool> danger: false;
+    // 与当前标题栏皮肤配套的描边与悬停底（由 AppLauncher 传入 palette-*）
+    in property <brush> ink;
+    in property <brush> ink-hover;
+    in property <brush> hover-fill;
+    callback clicked;
+
+    width: 38px;
+    height: 30px;
+    background: ta.has-hover ? (danger ? #c03838 : hover-fill) : transparent;
+
+    HorizontalLayout {
+        width: 100%;
+        height: 100%;
+        spacing: 0;
+        alignment: center;
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+
+        Rectangle {
+            width: 24px;
+            height: 24px;
+            horizontal-stretch: 0;
+
+            Path {
+                visible: icon-kind == 0;
+                width: 100%;
+                height: 100%;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 5 9 L 19 9 M 5 12 L 19 12 M 5 15 L 19 15";
+                stroke: ta.has-hover && danger ? #ffffff : (ta.has-hover ? ink-hover : ink);
+                stroke-width: 1.65px;
+                stroke-line-cap: round;
+                fill: transparent;
+            }
+
+            Path {
+                visible: icon-kind == 1;
+                width: 100%;
+                height: 100%;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 6.5 6.5 L 17.5 6.5 L 17.5 17.5 L 6.5 17.5 Z";
+                stroke: ta.has-hover && danger ? #ffffff : (ta.has-hover ? ink-hover : ink);
+                stroke-width: 1.65px;
+                fill: transparent;
+            }
+
+            Path {
+                visible: icon-kind == 2;
+                width: 100%;
+                height: 100%;
+                viewbox-x: 0;
+                viewbox-y: 0;
+                viewbox-width: 24;
+                viewbox-height: 24;
+                commands: "M 7 7 L 17 17 M 17 7 L 7 17";
+                stroke: ta.has-hover && danger ? #ffffff : (ta.has-hover ? ink-hover : ink);
+                stroke-width: 1.65px;
+                stroke-line-cap: round;
+                fill: transparent;
+            }
+        }
+
+        Rectangle {
+            horizontal-stretch: 1;
+        }
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+// 分组标签（双击重命名 · 右键菜单）
+component CategoryTab inherits Rectangle {
+    in property <CategoryItem> cat;
+    in property <int> skin-i;
+    in property <bool> active;
+    in property <bool> is-editing;
+    in property <bool> drop-hint;
+    in-out property <string> rename-draft;
+    in property <brush> accent-strip;
+    callback activate;
+    callback request-edit;
+    callback renamed(string);
+    callback tab-context-menu(length, length);
+    callback reorder-begin(length, length);
+    callback reorder-move(length, length);
+    callback reorder-end(length, length);
+
+    pure function tab-idle-bg(si: int) -> brush {
+        si == 1 ? #eef2f8 : si == 2 ? #2e2820 : si == 3 ? #261c30 : #0f1520
+    }
+
+    pure function tab-hover-bg(si: int) -> brush {
+        si == 1 ? #e4eaf4 : si == 2 ? #383028 : si == 3 ? #302438 : #161d2c
+    }
+
+    pure function tab-active-bg(si: int) -> brush {
+        si == 1 ? #d8e8fc : si == 2 ? #484038 : si == 3 ? #403058 : #1e3050
+    }
+
+    pure function tab-text-idle(si: int) -> brush {
+        si == 1 ? #607088 : si == 2 ? #988878 : si == 3 ? #9078a0 : #7a8898
+    }
+
+    pure function tab-text-active(si: int) -> brush {
+        si == 1 ? #142838 : si == 2 ? #fff5ea : si == 3 ? #ece8f8 : #d8e4f4
+    }
+
+    height: 26px;
+    width: 100%;
+    min-width: 96px;
+    border-radius: 5px;
+    background: drop-hint ? #2a3858 : active ? tab-active-bg(skin-i)
+            : hover.has-hover && !is-editing ? tab-hover-bg(skin-i)
+            : tab-idle-bg(skin-i);
+    border-width: drop-hint ? 1px : 0px;
+    border-color: drop-hint ? #c0a030 : transparent;
+
+    // 左侧竖条指示当前分组（与主题强调色一致）
+    if active && !drop-hint && !is-editing: Rectangle {
+        x: 0;
+        y: 4px;
+        width: 3px;
+        height: parent.height - 8px;
+        border-radius: 2px;
+        background: accent-strip;
+    }
+
+    if !is-editing: HorizontalLayout {
+        spacing: 0;
+        padding-left: 8px;
+        padding-right: 6px;
+        alignment: center;
+
+        Text {
+            horizontal-stretch: 1;
+            text: cat.name;
+            color: active ? tab-text-active(skin-i) : tab-text-idle(skin-i);
+            font-size: 11px;
+            font-weight: active ? 700 : 500;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            overflow: TextOverflow.elide;
+        }
+    }
+
+    if is-editing: Rectangle {
+        border-radius: 4px;
+        background: skin-i == 1 ? #ffffff : skin-i == 2 ? #3a342c : skin-i == 3 ? #302838 : #080c14;
+        border-width: 1px;
+        border-color: #c0a030;
+
+        TextInput {
+            x: 6px;
+            y: 1px;
+            width: parent.width - 12px;
+            height: parent.height - 2px;
+            text <=> rename-draft;
+            font-size: 12px;
+            color: skin-i == 1 ? #142838 : skin-i == 2 ? #fff5ea : skin-i == 3 ? #ece8f8 : #e8edf6;
+            single-line: true;
+            vertical-alignment: center;
+            accepted => { root.renamed(self.text); }
+        }
+    }
+
+    property <length> rpx: 0;
+    property <length> rpy: 0;
+    property <bool> reorder-armed: false;
+    property <bool> reorder-active: false;
+
+    hover := TouchArea {
+        width: 100%;
+        height: 100%;
+        enabled: !is-editing;
+
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.tab-context-menu(
+                    root.absolute-position.x + self.mouse-x,
+                    root.absolute-position.y + self.mouse-y
+                );
+            }
+            if e.button == PointerEventButton.left {
+                if e.kind == PointerEventKind.down {
+                    root.reorder-armed = true;
+                    root.reorder-active = false;
+                    root.rpx = self.mouse-x;
+                    root.rpy = self.mouse-y;
+                }
+                if e.kind == PointerEventKind.up {
+                    if root.reorder-active {
+                        root.reorder-end(
+                            root.absolute-position.x + self.mouse-x,
+                            root.absolute-position.y + self.mouse-y
+                        );
+                    } else if root.reorder-armed {
+                        root.activate();
+                    }
+                    root.reorder-armed = false;
+                    root.reorder-active = false;
+                }
+            }
+        }
+
+        moved => {
+            // 仅当纵向移动明显大于横向时才进入分组排序，避免左右滑动误触发重排 / 侧栏横向漂移感
+            if self.pressed && root.reorder-armed && !root.reorder-active {
+                let dx = abs(self.mouse-x - root.rpx);
+                let dy = abs(self.mouse-y - root.rpy);
+                if dy > 10px && dy >= dx + 4px {
+                    root.reorder-active = true;
+                    root.reorder-begin(
+                        root.absolute-position.x + self.mouse-x,
+                        root.absolute-position.y + self.mouse-y
+                    );
+                }
+            }
+            if root.reorder-active {
+                root.reorder-move(
+                    root.absolute-position.x + self.mouse-x,
+                    root.absolute-position.y + self.mouse-y
+                );
+            }
+        }
+
+        double-clicked => {
+            root.request-edit();
+        }
+    }
+}
+
+// 图标卡片：左键启动 · 右键菜单 · 拖拽到分组/外部
+component AppIconCell inherits Rectangle {
+    in property <AppItem> item;
+    in property <int> skin-index: 0;
+    in property <float> icon-base: 40;
+    property <length> icon-box: (icon-base + 8) * 1px;
+    property <length> icon-normal: icon-base * 1px;
+    property <length> icon-hover: (icon-base * 1.1) * 1px;
+    property <length> icon-press: (icon-base * 0.95) * 1px;
+    property <length> label-width: (icon-base + 32) * 1px;
+    in property <bool> is-being-dragged;
+    in property <bool> suppress-launch-on-up: false;
+    // 搜索进行中：以强调色描边突出「当前均为匹配项」
+    in property <bool> search-lit: false;
+    in property <length> drag-threshold: 8px;
+
+    callback launch;
+    callback request-menu(length, length);
+    callback drag-start(length, length);
+    callback drag-move(length, length);
+    callback drag-end(length, length);
+    callback consume-suppress-launch();
+
+    property <length> press-x: 0;
+    property <length> press-y: 0;
+    property <bool> drag-armed: false;
+    property <bool> drag-active: false;
+    property <bool> hover-on: ta.has-hover && !drag-active;
+    property <bool> press-on: ta.pressed && !drag-active;
+
+    border-radius: 0px;
+    background: transparent;
+    border-width: 0px;
+    border-color: transparent;
+    opacity: is-being-dragged ? 0.5 : 1.0;
+
+    VerticalLayout {
+        alignment: center;
+        spacing: 5px;
+        padding: 6px;
+
+        HorizontalLayout {
+            alignment: center;
+            width: 100%;
+
+            Rectangle {
+                width: icon-box;
+                height: icon-box;
+                y: root.press-on ? 2px : (root.hover-on ? -1px : 0px);
+                drop-shadow-color: root.hover-on ? #ffffff55 : transparent;
+                drop-shadow-blur: root.hover-on ? 10px : 0px;
+                drop-shadow-offset-y: 0px;
+                animate y { duration: 120ms; easing: ease-in-out; }
+                animate drop-shadow-blur { duration: 120ms; easing: ease-in-out; }
+
+                Image {
+                    source: item.icon;
+                    x: (parent.width - self.width) / 2;
+                    y: (parent.height - self.height) / 2;
+                    width: root.press-on ? icon-press : (root.hover-on ? icon-hover : icon-normal);
+                    height: root.press-on ? icon-press : (root.hover-on ? icon-hover : icon-normal);
+                    image-fit: contain;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    animate width { duration: 120ms; easing: ease-in-out; }
+                    animate height { duration: 120ms; easing: ease-in-out; }
+                }
+            }
+        }
+
+        Text {
+            x: (parent.width - self.width) / 2;
+            text: item.name;
+            color: skin-index == 1 ? #111111 : #ffffff;
+            font-size: 13px;
+            font-weight: search-lit ? 700 : 400;
+            horizontal-alignment: center;
+            vertical-alignment: top;
+            overflow: TextOverflow.elide;
+            wrap: word-wrap;
+            width: label-width;
+            height: 34px;
+        }
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+
+        pointer-event(e) => {
+            if e.button == PointerEventButton.left {
+                if e.kind == PointerEventKind.down {
+                    root.drag-armed = true;
+                    root.drag-active = false;
+                    root.press-x = self.mouse-x;
+                    root.press-y = self.mouse-y;
+                }
+                if e.kind == PointerEventKind.up {
+                    if root.drag-active {
+                        root.drag-end(
+                            self.absolute-position.x + self.mouse-x,
+                            self.absolute-position.y + self.mouse-y
+                        );
+                    } else {
+                        if root.suppress-launch-on-up {
+                            root.consume-suppress-launch();
+                        } else {
+                            root.launch();
+                        }
+                    }
+                    root.drag-armed = false;
+                    root.drag-active = false;
+                }
+            }
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.request-menu(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y
+                );
+            }
+        }
+
+        moved => {
+            if self.pressed && root.drag-armed && !root.drag-active {
+                if abs(self.mouse-x - root.press-x) > root.drag-threshold
+                || abs(self.mouse-y - root.press-y) > root.drag-threshold {
+                    root.drag-active = true;
+                    root.drag-start(
+                        self.absolute-position.x + self.mouse-x,
+                        self.absolute-position.y + self.mouse-y
+                    );
+                }
+            }
+            if root.drag-active {
+                root.drag-move(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y
+                );
+            }
+        }
+    }
+}
+
+// 拦截指针，防止穿透到下层全屏 TouchArea（模态/菜单必备）
+component ClickShield inherits TouchArea {
+    width: 100%;
+    height: 100%;
+}
+
+// 计算机搜索结果列表行
+component FileHitRow inherits Rectangle {
+    in property <FileHitItem> item;
+    in property <int> skin-i;
+    in property <brush> row-hover;
+    in property <brush> text-main;
+    in property <brush> text-muted;
+    in property <brush> row-sep;
+    callback launch;
+    callback request-menu(length, length);
+
+    height: 34px;
+    background: ta.has-hover ? row-hover : transparent;
+
+    HorizontalLayout {
+        padding-left: 10px;
+        padding-right: 8px;
+        spacing: 8px;
+
+        Text {
+            width: 28%;
+            height: 100%;
+            text: item.name;
+            color: text-main;
+            font-size: 12px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            width: 36%;
+            height: 100%;
+            text: item.location;
+            color: text-muted;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            width: 18%;
+            height: 100%;
+            text: item.modified;
+            color: text-muted;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+        Text {
+            horizontal-stretch: 1;
+            height: 100%;
+            text: item.attributes;
+            color: text-muted;
+            font-size: 11px;
+            vertical-alignment: center;
+            overflow: elide;
+        }
+    }
+
+    Rectangle {
+        y: parent.height - 1px;
+        width: 100%;
+        height: 1px;
+        background: row-sep;
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.launch(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.up {
+                root.request-menu(
+                    self.absolute-position.x + self.mouse-x,
+                    self.absolute-position.y + self.mouse-y
+                );
+            }
+        }
+    }
+}
+
+// 右键菜单项
+component MenuRow inherits Rectangle {
+    in property <string> text;
+    in property <bool> danger: false;
+    in property <brush> hover-fill;
+    in property <brush> hover-fill-danger;
+    in property <brush> text-idle;
+    in property <brush> text-hover;
+    in property <brush> danger-idle;
+    in property <brush> danger-hover;
+    callback clicked;
+
+    height: 26px;
+    background: ta.has-hover ? (danger ? hover-fill-danger : hover-fill) : transparent;
+
+    Text {
+        x: 12px;
+        text: root.text;
+        color: danger ? (ta.has-hover ? danger-hover : danger-idle) : (ta.has-hover ? text-hover : text-idle);
+        font-size: 12px;
+        vertical-alignment: center;
+        height: 100%;
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+
+// ── 主窗口 ─────────────────────────────────────────────
+export component AppLauncher inherits Window {
+    in-out property <string> launcher-title: "亦安";
+    title: launcher-title;
+    no-frame: true;
+    resize-border-width: 6px;
+    // 不透明底：铺满整个客户区，四角不再透出桌面；圆角由 Windows DWM 与绘制区对齐
+    background: palette-frame(skin-index);
+    min-width: 520px;
+    min-height: 360px;
+    preferred-width: 760px;
+    preferred-height: 540px;
+    default-font-family: "Microsoft YaHei UI";
+    default-font-size: 12px;
+
+    in property <[CategoryItem]> categories: [];
+    in property <[AppItem]> filtered-apps: [];
+    // 计算机（Everything）搜索结果列表
+    in property <[FileHitItem]> file-hits: [];
+    in-out property <string> search-text: "";
+    in-out property <string> search-input-text: "";
+    // 0 = 搜索程序内 · 1 = 搜索计算机（Everything）
+    in-out property <int> search-scope: 0;
+    in-out property <bool> show-search-scope-menu: false;
+    // 右键菜单是否针对计算机搜索结果（隐藏编辑/置顶/删除）
+    in-out property <bool> menu-is-file-hit: false;
+    // 应用网格纵向滚动偏移（仅与 apps-scroll 双向绑定；搜索命中后 Rust 归零以顶对齐首条）
+    // 勿与 file-hits-scroll 共用：隐藏且内容高度为 0 的 ScrollView 会经双向绑定把偏移钳回 0。
+    in-out property <length> apps-viewport-y: 0px;
+    // 计算机搜索列表纵向滚动偏移（与 file-hits-scroll 独立绑定）
+    in-out property <length> file-hits-viewport-y: 0px;
+    in-out property <string> selected-category: "";
+    in-out property <bool> drop-active: false;
+    in-out property <string> status-text: "拖入文件添加 · 左键启动 · 右键菜单";
+    in-out property <string> editing-tab-id: "";
+    // 分组重命名草稿（与当前编辑中的分组标签双向绑定）
+    in-out property <string> editing-tab-draft: "";
+    in-out property <bool> show-category-dialog: false;
+    in-out property <string> cat-name-input: "";
+    // 分组密码：mode 0=设定 · 1=解锁进入 · 2=验证后清除
+    in-out property <bool> show-password-dialog: false;
+    in-out property <int> password-dialog-mode: 0;
+    in-out property <string> password-dialog-cat-id: "";
+    in-out property <string> password-dialog-cat-name: "";
+    in-out property <string> password-input: "";
+    in-out property <string> password-error: "";
+
+    // 拖拽状态
+    in-out property <bool> dragging: false;
+    in-out property <string> dragging-app-id: "";
+    in-out property <string> dragging-app-path: "";
+    in-out property <string> dragging-app-name: "";
+    in-out property <image> dragging-app-icon;
+    in-out property <length> drag-cur-x: 0;
+    in-out property <length> drag-cur-y: 0;
+    in-out property <bool> ext-drag-fired: false;
+    // 外部拖拽返回窗口后的首个抬起事件不触发启动，避免误点运行刚拖拽项目
+    in-out property <bool> suppress-next-launch-click: false;
+
+    // 右键菜单
+    in-out property <bool> show-menu: false;
+    in-out property <length> menu-x: 0;
+    in-out property <length> menu-y: 0;
+    // 分组标签右键菜单（重命名 / 删除分组）
+    in-out property <bool> show-category-tab-menu: false;
+    in-out property <length> category-tab-menu-x: 0;
+    in-out property <length> category-tab-menu-y: 0;
+    in-out property <string> category-tab-menu-cat-id: "";
+    in-out property <string> category-tab-menu-cat-name: "";
+    in-out property <bool> category-tab-menu-has-password: false;
+    in-out property <bool> show-delete-category-dialog: false;
+    in-out property <string> menu-app-id: "";
+    in-out property <string> menu-app-path: "";
+    in-out property <bool> menu-app-pinned: false;
+
+    // 编辑对话框
+    in-out property <bool> show-edit-dialog: false;
+    in-out property <string> edit-id: "";
+    in-out property <string> edit-name: "";
+    in-out property <string> edit-path: "";
+    in-out property <string> edit-args: "";
+    in-out property <string> edit-category-id: "";
+    in-out property <int> edit-sort: 0;
+    in-out property <string> edit-sort-text: "0";
+
+    // 设置 / 皮肤（skin-index: 0暗色 1明亮 2温馨 3柔和）
+    in-out property <int> skin-index: 0;
+    in-out property <bool> show-about-dialog: false;
+    in-out property <bool> show-hotkey-dialog: false;
+    in property <string> app-version: "26.8.13";
+    in-out property <string> hotkey-label: "（未设置）";
+    in-out property <bool> hotkey-capturing: false;
+    in-out property <bool> hotkey-enabled: true;
+    in-out property <bool> cfg-always-on-top: false;
+    in-out property <bool> cfg-auto-start: false;
+    in-out property <bool> cfg-start-minimized: false;
+    in-out property <bool> cfg-edge-auto-hide: false;
+    in-out property <bool> cfg-hide-on-launch-click: false;
+    in-out property <float> icon-size: 46;
+    in-out property <image> background-image;
+    in-out property <bool> has-custom-background: false;
+
+    // 几何（左侧纵向分组栏 · 拖拽命中）
+    property <length> sidebar-w: 128px;
+    // 双线标题栏：约 44px 标题行 + 搜索行与内边距（与下方 VerticalLayout 一致）
+    property <length> tabs-y-start: 92px;
+    property <length> category-tab-step: 30px;
+    property <length> content-overlay-x: sidebar-w + 12px;
+    property <length> content-overlay-y: tabs-y-start + 12px;
+
+    callback launch-app(AppItem);
+    callback launch-file-path(string);
+    // text, scope（0=程序内 1=计算机）——显式传 scope，避免绑定不同步
+    callback submit-search(string, int);
+    callback category-changed(string);
+    callback add-category(CategoryItem);
+    callback rename-category(string, string);
+    callback delete-category(string);
+    callback launch-category(string);
+    callback confirm-password-dialog(string);
+    callback cancel-password-dialog();
+    callback clear-category-password(string);
+    callback delete-app(string);
+    callback move-app-to-category(string, string);
+    callback request-external-drag(string, string);
+    callback run-as-admin(string);
+    callback open-location(string);
+    callback show-properties(string);
+    callback toggle-pin(string);
+    callback import-custom-icon(string);
+    callback request-edit(string);
+    callback save-app-edit(string, string, string, string, string, string);
+    callback titlebar-drag();
+    callback toggle-maximize();
+    callback hide-main-window();
+    callback open-settings-popup();
+    callback settings-toggle-hotkey-enabled();
+    callback settings-hotkey-begin-capture();
+    callback settings-hotkey-capture-mouse(int);
+    callback settings-hotkey-dialog-closed();
+    callback reorder-category(int, int);
+    callback clear-search();
+    // 实时搜索：搜索框内容变化即触发（scope 0=程序内 1=计算机）
+    callback search-text-changed(string, int);
+    callback about-confirm();
+
+    // Slint 的 TextInput 点别处不会自动失焦；统一由此收起光标。
+    public function blur-search-input() {
+        title-search-input.clear-focus();
+    }
+
+    // 唤起窗口后把键盘焦点交给搜索框，用户不用先点一下
+    public function focus-search-input() {
+        title-search-input.focus();
+    }
+
+    // 分组拖拽排序中（与应用拖拽区分）
+    in-out property <bool> cat-reorder-active: false;
+    in-out property <int> cat-reorder-from: -1;
+    // 插入位置：0..=categories.length（在当前坐标系下将要插入到该槽位之前）
+    in-out property <int> cat-reorder-insert-before: -1;
+
+    // 调色盘（与 skin-index 联动）
+    pure function palette-root(si: int) -> brush {
+        si == 1 ? #e8ecf4 : si == 2 ? #2f261c : si == 3 ? #221a28 : #080c14
+    }
+
+    pure function palette-frame(si: int) -> brush {
+        si == 1 ? #f5f7fb : si == 2 ? #3a3024 : si == 3 ? #2e2438 : #0b1018
+    }
+
+    pure function palette-border(si: int) -> brush {
+        si == 1 ? #c8d0e0 : si == 2 ? #5a4838 : si == 3 ? #4a3c58 : #1a2535
+    }
+
+    pure function palette-sidebar(si: int) -> brush {
+        si == 1 ? #e6eaf4 : si == 2 ? #302820 : si == 3 ? #261e30 : #070a10
+    }
+
+    pure function palette-title(si: int) -> brush {
+        si == 1 ? #e2e8f2 : si == 2 ? #352a20 : si == 3 ? #1c1524 : #070b12
+    }
+
+    pure function palette-search(si: int) -> brush {
+        si == 1 ? #ffffff : si == 2 ? #2c241c : si == 3 ? #140f18 : #07090f
+    }
+
+    pure function palette-search-bd(si: int) -> brush {
+        si == 1 ? #b8c4d8 : si == 2 ? #4a3c30 : si == 3 ? #3a3048 : #18243a
+    }
+
+    pure function palette-content(si: int) -> brush {
+        si == 1 ? #fafbff : si == 2 ? #282018 : si == 3 ? #181020 : #07090f
+    }
+
+    pure function palette-content-bd(si: int) -> brush {
+        si == 1 ? #d0d8e8 : si == 2 ? #453830 : si == 3 ? #352842 : #141e30
+    }
+
+    // 自定义背景时的半透明玻璃面板（保留组件边缘、背景仍可透出）
+    pure function glass-overlay(si: int) -> brush {
+        si == 1 ? #e8eef830 : si == 2 ? #1a120828 : si == 3 ? #14081830 : #00000038
+    }
+    pure function glass-title-bg(si: int) -> brush {
+        si == 1 ? #eef3f0a8 : si == 2 ? #35281eaa : si == 3 ? #20182aaa : #070b1290
+    }
+    pure function glass-sidebar-bg(si: int) -> brush {
+        si == 1 ? #eef2f6a8 : si == 2 ? #2e241baa : si == 3 ? #22182baa : #070a1092
+    }
+    pure function glass-content-bg(si: int) -> brush {
+        si == 1 ? #fbfcffa8 : si == 2 ? #282018aa : si == 3 ? #181020aa : #07090f94
+    }
+
+    pure function palette-muted(si: int) -> brush {
+        si == 1 ? #607790 : si == 2 ? #908070 : si == 3 ? #806878 : #2e3c4e
+    }
+
+    pure function palette-accent(si: int) -> brush {
+        si == 1 ? #2070c0 : si == 2 ? #d08040 : si == 3 ? #c070a0 : #c0a030
+    }
+
+    /// 外部拖入高亮填充（与 palette-accent 同色相，低透明度）
+    pure function palette-drop-hint-fill(si: int) -> brush {
+        si == 1 ? #2070c018 : si == 2 ? #d0804018 : si == 3 ? #c070a018 : #c0a03018
+    }
+
+    pure function palette-title-text(si: int) -> brush {
+        si == 1 ? #142838 : si == 2 ? #fff5ea : si == 3 ? #ece8f8 : #e8eef8
+    }
+
+    pure function palette-caption-icon(si: int) -> brush {
+        si == 1 ? #4a5c78 : si == 2 ? #c8b898 : si == 3 ? #a898c8 : #8a9cac
+    }
+
+    pure function palette-caption-icon-hover(si: int) -> brush {
+        si == 1 ? #102438 : si == 2 ? #fffaf0 : si == 3 ? #f4eefc : #f0f5fc
+    }
+
+    pure function palette-caption-hover-fill(si: int) -> brush {
+        si == 1 ? #d0dae8 : si == 2 ? #4a3c34 : si == 3 ? #382848 : #1a2838
+    }
+
+    pure function palette-settings-row-bg(si: int) -> brush {
+        si == 1 ? #eef2f8 : si == 2 ? #322820 : si == 3 ? #241c2c : #0f1520
+    }
+
+    pure function palette-settings-row-bg-hover(si: int) -> brush {
+        si == 1 ? #e4eaf4 : si == 2 ? #3e342c : si == 3 ? #302438 : #1a2838
+    }
+
+    pure function palette-settings-row-bd(si: int) -> brush {
+        si == 1 ? #c8d4e4 : si == 2 ? #584838 : si == 3 ? #483858 : #283848
+    }
+
+    pure function palette-settings-row-text(si: int) -> brush {
+        si == 1 ? #243449 : si == 2 ? #e8dcd4 : si == 3 ? #dcd0e8 : #c8d8e8
+    }
+
+    pure function palette-settings-danger-bg-hover(si: int) -> brush {
+        si == 1 ? #fde8e8 : si == 2 ? #4a2828 : si == 3 ? #402838 : #3a1515
+    }
+
+    pure function palette-settings-danger-bd(si: int) -> brush {
+        si == 1 ? #e8a8a8 : si == 2 ? #8a4848 : si == 3 ? #a05878 : #5a2525
+    }
+
+    pure function palette-settings-danger-text(si: int) -> brush {
+        si == 1 ? #c02828 : si == 2 ? #f09888 : si == 3 ? #f088a8 : #e08080
+    }
+
+    pure function palette-settings-toggle-inner(si: int) -> brush {
+        si == 1 ? #f8fafc : si == 2 ? #281c18 : si == 3 ? #140f18 : #0a1018
+    }
+
+    pure function palette-settings-toggle-check-bd(si: int) -> brush {
+        si == 1 ? #8898b0 : si == 2 ? #786858 : si == 3 ? #786088 : #5a6a7c
+    }
+
+    pure function palette-menu-surface(si: int) -> brush {
+        si == 1 ? #ffffff : si == 2 ? #3a3228 : si == 3 ? #2e2438 : #0e1422
+    }
+
+    pure function palette-menu-row-hover(si: int) -> brush {
+        si == 1 ? #e8eef8 : si == 2 ? #4a4038 : si == 3 ? #403050 : #1a2336
+    }
+
+    pure function palette-menu-text(si: int) -> brush {
+        si == 1 ? #243449 : si == 2 ? #e8dcd4 : si == 3 ? #dcd0e8 : #c8d4e0
+    }
+
+    pure function palette-menu-text-hover(si: int) -> brush {
+        si == 1 ? #142838 : si == 2 ? #fff5ea : si == 3 ? #f4eef8 : #e8eef8
+    }
+
+    pure function palette-menu-danger-hover(si: int) -> brush {
+        si == 1 ? #fde8e8 : si == 2 ? #4a2828 : si == 3 ? #402838 : #2a1414
+    }
+
+    pure function palette-menu-danger-idle(si: int) -> brush {
+        si == 1 ? #c02828 : si == 2 ? #e05858 : si == 3 ? #e05878 : #c05050
+    }
+
+    pure function palette-menu-danger-text-hover(si: int) -> brush {
+        si == 1 ? #e03030 : si == 2 ? #f07878 : si == 3 ? #f098b8 : #f06060
+    }
+
+    pure function palette-strong-heading(si: int) -> brush {
+        si == 1 ? #1a2538 : si == 2 ? #fff5ea : si == 3 ? #ece8f8 : #d0dce8
+    }
+
+    pure function palette-settings-section-heading(si: int) -> brush {
+        si == 1 ? #384860 : si == 2 ? #e8d8c8 : si == 3 ? #d8c8e8 : #d4dce8
+    }
+
+    pure function palette-search-input-text(si: int) -> brush {
+        si == 1 ? #1a2538 : si == 2 ? #e8dcd4 : si == 3 ? #dcd0e8 : #c8d4e2
+    }
+
+    pure function palette-dialog-secondary-btn(si: int) -> brush {
+        si == 1 ? #e8eef6 : si == 2 ? #3a342c : si == 3 ? #302838 : #111d30
+    }
+
+    pure function palette-dialog-secondary-text(si: int) -> brush {
+        si == 1 ? #405068 : si == 2 ? #c8b8a8 : si == 3 ? #b8a8c8 : #8090a0
+    }
+
+    // 纵向拖拽分组排序：插入槽位（横杠位置）。按行内上半/下半区分插在当前行之前或之后。
+    pure function category-insert-rel(py: length) -> length {
+        py < tabs-y-start ? 0px : py - tabs-y-start
+    }
+
+    pure function insert-slot-from-rel(rel: length, n: int) -> int {
+        floor(rel / category-tab-step) >= n ? n : (
+            rel - floor(rel / category-tab-step) * category-tab-step < 15px ? floor(rel / category-tab-step) : (
+                floor(rel / category-tab-step) + 1 > n ? n : floor(rel / category-tab-step) + 1
+            )
+        )
+    }
+
+    pure function category-insert-slot(py: length, n: int) -> int {
+        n <= 0 ? -1 : insert-slot-from-rel(category-insert-rel(py), n)
+    }
+
+    // 计算拖拽落在第几个分组（左侧纵向列表；与滚动条偏移相同局限）
+    pure function tab-index-at(px: length, py: length) -> int {
+        px < 0px || px > sidebar-w || py < tabs-y-start || categories.length <= 0
+            ? -1
+            : floor((py - tabs-y-start) / category-tab-step) < 0
+            ? -1
+            : floor((py - tabs-y-start) / category-tab-step) >= categories.length
+            ? -1
+            : floor((py - tabs-y-start) / category-tab-step)
+    }
+
+    pure function is-outside-window(px: length, py: length) -> bool {
+        px < -2px || py < -2px || px > root.width + 2px || py > root.height + 2px
+    }
+
+    // 铺满客户区，与窗口边缘重合（圆角由 DWM 处理，避免 Slint 圆角与 HWND 错位产生透明楔角）
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: root.has-custom-background ? transparent : palette-frame(skin-index);
+        border-width: 1px;
+        border-color: palette-border(skin-index);
+        clip: true;
+
+        Image {
+            visible: root.has-custom-background;
+            width: 100%;
+            height: 100%;
+            source: root.background-image;
+            image-fit: cover;
+        }
+
+        Rectangle {
+            visible: root.has-custom-background;
+            width: 100%;
+            height: 100%;
+            background: glass-overlay(skin-index);
+        }
+
+        VerticalLayout {
+            vertical-stretch: 1;
+            // ── 标题栏：上行仅标题 + 可拖动空白 + 窗口按钮；搜索单独一行，不占用拖动区域也不挤压按钮 ──
+            Rectangle {
+                background: root.has-custom-background ? glass-title-bg(skin-index) : palette-title(skin-index);
+
+                VerticalLayout {
+                    spacing: 0;
+
+                    HorizontalLayout {
+                        height: 44px;
+                        padding-left: 12px;
+                        padding-right: 4px;
+                        spacing: 8px;
+                        alignment: stretch;
+
+                        // 应用标题文字（窄列，可拖动）
+                        Rectangle {
+                            horizontal-stretch: 0;
+
+                            VerticalLayout {
+                                alignment: center;
+                                HorizontalLayout {
+                                    spacing: 8px;
+                                    Text {
+                                        text: launcher-title;
+                                        color: palette-title-text(skin-index);
+                                        font-size: 15px;
+                                        font-weight: 900;
+                                        vertical-alignment: center;
+                                    }
+                                }
+                            }
+
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                pointer-event(e) => {
+                                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                        root.blur-search-input();
+                                        if root.editing-tab-id != "" {
+                                            root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                            root.editing-tab-id = "";
+                                        }
+                                        root.titlebar-drag();
+                                    }
+                                }
+                            }
+                        }
+
+                        // 标题栏中部：整块用于拖动窗口（与搜索框分离）
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            min-height: 44px;
+                            TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                pointer-event(e) => {
+                                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                                        root.blur-search-input();
+                                        if root.editing-tab-id != "" {
+                                            root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                            root.editing-tab-id = "";
+                                        }
+                                        root.titlebar-drag();
+                                    }
+                                }
+                            }
+                        }
+
+                        // ── 窗口控制：设置 / 最大化 / 关闭（隐藏到托盘）──
+                        CaptionButton {
+                            icon-kind: 0;
+                            ink: palette-caption-icon(skin-index);
+                            ink-hover: palette-caption-icon-hover(skin-index);
+                            hover-fill: palette-caption-hover-fill(skin-index);
+                            clicked => {
+                                root.blur-search-input();
+                                if root.editing-tab-id != "" {
+                                    root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                    root.editing-tab-id = "";
+                                }
+                                root.open-settings-popup();
+                            }
+                        }
+                        CaptionButton {
+                            icon-kind: 1;
+                            ink: palette-caption-icon(skin-index);
+                            ink-hover: palette-caption-icon-hover(skin-index);
+                            hover-fill: palette-caption-hover-fill(skin-index);
+                            clicked => {
+                                root.blur-search-input();
+                                if root.editing-tab-id != "" {
+                                    root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                    root.editing-tab-id = "";
+                                }
+                                root.toggle-maximize();
+                            }
+                        }
+                        CaptionButton {
+                            icon-kind: 2;
+                            danger: true;
+                            ink: palette-caption-icon(skin-index);
+                            ink-hover: palette-caption-icon-hover(skin-index);
+                            hover-fill: palette-caption-hover-fill(skin-index);
+                            clicked => {
+                                root.blur-search-input();
+                                if root.editing-tab-id != "" {
+                                    root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                    root.editing-tab-id = "";
+                                }
+                                root.hide-main-window();
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        padding-left: 12px;
+                        padding-right: 4px;
+                        padding-bottom: 7px;
+                        spacing: 8px;
+
+                        // 搜索范围下拉
+                        Rectangle {
+                            width: 96px;
+                            height: 28px;
+                            border-radius: 6px;
+                            background: search-scope-ta.has-hover ? palette-caption-hover-fill(skin-index) : palette-search(skin-index);
+                            border-width: 1px;
+                            border-color: palette-search-bd(skin-index);
+                            animate background { duration: 120ms; easing: ease-in-out; }
+
+                            Text {
+                                x: 8px;
+                                width: parent.width - 22px;
+                                height: 100%;
+                                text: root.search-scope == 0 ? "程序内" : "计算机";
+                                color: palette-search-input-text(skin-index);
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+
+                            Text {
+                                x: parent.width - 16px;
+                                width: 12px;
+                                height: 100%;
+                                text: "▾";
+                                color: palette-muted(skin-index);
+                                font-size: 10px;
+                                vertical-alignment: center;
+                                horizontal-alignment: center;
+                            }
+
+                            search-scope-ta := TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.blur-search-input();
+                                    root.show-search-scope-menu = !root.show-search-scope-menu;
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            horizontal-stretch: 1;
+                            height: 28px;
+                            border-radius: 6px;
+                            background: palette-search(skin-index);
+                            border-width: 1px;
+                            border-color: title-search-input.has-focus ? palette-accent(skin-index) : palette-search-bd(skin-index);
+
+                            Text {
+                                x: 10px;
+                                height: 100%;
+                                text: root.search-scope == 0 ? "搜索名称或路径…" : "搜索计算机文件（Everything）…";
+                                color: palette-muted(skin-index);
+                                font-size: 11px;
+                                vertical-alignment: center;
+                                visible: search-input-text == "";
+                            }
+
+                            title-search-input := TextInput {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: 100%;
+                                text <=> search-input-text;
+                                color: palette-search-input-text(skin-index);
+                                font-size: 12px;
+                                single-line: true;
+                                vertical-alignment: center;
+                                accepted => {
+                                    root.submit-search(root.search-input-text, root.search-scope);
+                                }
+                                // 实时搜索：内容一变就刷新结果，不再等回车
+                                edited => {
+                                    root.search-text-changed(root.search-input-text, root.search-scope);
+                                }
+                            }
+
+                            if editing-tab-id != "": TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                    root.editing-tab-id = "";
+                                }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 58px;
+                            height: 28px;
+                            border-radius: 6px;
+                            background: search-btn-ta.pressed
+                                ? palette-accent(skin-index)
+                                : (search-btn-ta.has-hover ? palette-caption-hover-fill(skin-index) : palette-dialog-secondary-btn(skin-index));
+                            border-width: 1px;
+                            border-color: search-btn-ta.pressed ? palette-accent(skin-index) : palette-search-bd(skin-index);
+                            animate background { duration: 140ms; easing: ease-in-out; }
+                            animate border-color { duration: 140ms; easing: ease-in-out; }
+
+                            Text {
+                                width: 100%;
+                                height: 100%;
+                                text: "搜索";
+                                color: search-btn-ta.pressed ? palette-title(skin-index) : palette-search-input-text(skin-index);
+                                font-size: 11px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                y: search-btn-ta.pressed ? 1px : 0px;
+                                animate color { duration: 120ms; easing: ease-in-out; }
+                                animate y { duration: 90ms; easing: ease-in-out; }
+                            }
+
+                            search-btn-ta := TouchArea {
+                                width: 100%;
+                                height: 100%;
+                                clicked => {
+                                    root.show-search-scope-menu = false;
+                                    root.submit-search(root.search-input-text, root.search-scope);
+                                    root.blur-search-input();
+                                }
+                            }
+                        }
+                    }
+                }
+
+                Rectangle {
+                    x: 0;
+                    y: parent.height - 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: palette-border(skin-index);
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 0;
+                vertical-stretch: 1;
+
+                // ── 左侧分组栏 ──
+                Rectangle {
+                    width: sidebar-w;
+                    vertical-stretch: 1;
+                    background: root.has-custom-background ? glass-sidebar-bg(skin-index) : palette-sidebar(skin-index);
+                    border-width: root.has-custom-background ? 1px : 0px;
+                    border-color: palette-border(skin-index);
+                    clip: true;
+
+                    VerticalLayout {
+                        padding-top: 10px;
+                        padding-bottom: 10px;
+                        padding-left: 10px;
+                        padding-right: 8px;
+                        spacing: 8px;
+
+                        // 分组列表：可滚动 + 右侧滚动条；底部仅保留一条窄命中区供右键新建
+                        ScrollView {
+                            vertical-stretch: 1;
+                            width: 100%;
+                            mouse-drag-pan-enabled: true;
+                            vertical-scrollbar-policy: ScrollBarPolicy.as-needed;
+                            horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+
+                            viewport-width: self.visible-width;
+                            viewport-height: categories.length <= 0
+                                ? self.visible-height
+                                : categories.length * category-tab-step - 4px;
+
+                            VerticalLayout {
+                                spacing: 4px;
+                                width: parent.width;
+
+                                for cat[idx] in categories: CategoryTab {
+                                    cat: cat;
+                                    skin-i: skin-index;
+                                    accent-strip: palette-accent(skin-index);
+                                    active: root.selected-category == cat.id;
+                                    is-editing: root.editing-tab-id == cat.id;
+                                    rename-draft <=> root.editing-tab-draft;
+                                    drop-hint: root.dragging && !root.cat-reorder-active
+                                        && idx == root.tab-index-at(root.drag-cur-x, root.drag-cur-y)
+                                        && root.tab-index-at(root.drag-cur-x, root.drag-cur-y) >= 0;
+                                    activate => {
+                                        root.blur-search-input();
+                                        if root.editing-tab-id != "" {
+                                            root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                                            root.editing-tab-id = "";
+                                        }
+                                        root.category-changed(cat.id);
+                                    }
+                                    request-edit => {
+                                        root.editing-tab-draft = cat.name;
+                                        root.editing-tab-id = cat.id;
+                                    }
+                                    renamed(name) => {
+                                        root.rename-category(cat.id, name);
+                                        root.editing-tab-id = "";
+                                    }
+                                    tab-context-menu(mx, my) => {
+                                        root.category-tab-menu-x = mx;
+                                        root.category-tab-menu-y = my;
+                                        root.category-tab-menu-cat-id = cat.id;
+                                        root.category-tab-menu-cat-name = cat.name;
+                                        root.category-tab-menu-has-password = cat.has-password;
+                                        root.show-menu = false;
+                                        root.show-category-tab-menu = true;
+                                    }
+                                    reorder-begin(wx, wy) => {
+                                        root.cat-reorder-active = true;
+                                        root.cat-reorder-from = idx;
+                                        root.drag-cur-x = wx;
+                                        root.drag-cur-y = wy;
+                                        root.cat-reorder-insert-before = root.category-insert-slot(wy, root.categories.length);
+                                        root.status-text = "拖拽调整分组顺序…";
+                                    }
+                                    reorder-move(wx, wy) => {
+                                        root.drag-cur-x = wx;
+                                        root.drag-cur-y = wy;
+                                        root.cat-reorder-insert-before = root.category-insert-slot(wy, root.categories.length);
+                                    }
+                                    reorder-end(wx, wy) => {
+                                        let slot = root.category-insert-slot(wy, root.categories.length);
+                                        root.cat-reorder-active = false;
+                                        root.drag-cur-x = wx;
+                                        root.drag-cur-y = wy;
+                                        root.cat-reorder-insert-before = -1;
+                                        if slot >= 0 {
+                                            root.reorder-category(root.cat-reorder-from, slot);
+                                        }
+                                        root.cat-reorder-from = -1;
+                                        root.status-text = "就绪";
+                                    }
+                                }
+                            }
+
+                            // 分组排序插入位置提示（横杠，随列表滚动）
+                            if root.cat-reorder-active && root.cat-reorder-insert-before >= 0 && root.categories.length > 0: Rectangle {
+                                x: 0px;
+                                y: root.cat-reorder-insert-before * root.category-tab-step - 2px;
+                                width: 100%;
+                                height: 3px;
+                                background: palette-accent(skin-index);
+                                border-radius: 2px;
+                            }
+                        }
+
+                    }
+                }
+
+                Rectangle {
+                    width: 1px;
+                    vertical-stretch: 1;
+                    background: palette-border(skin-index);
+                }
+
+                VerticalLayout {
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    padding: 10px;
+                    spacing: 8px;
+
+                // ── 内容区背景框（仅用于视觉边框和 drop-active 高亮）──
+                content-rect := Rectangle {
+                    width: 100%;
+                    horizontal-stretch: 1;
+                    vertical-stretch: 1;
+                    border-radius: 10px;
+                    background: root.has-custom-background ? glass-content-bg(skin-index) : palette-content(skin-index);
+                    border-width: 1px;
+                    border-color: drop-active ? palette-accent(skin-index) : palette-content-bd(skin-index);
+
+                    property <float> ncols: max(1.0, self.width / 92px);
+
+                    if drop-active: Rectangle {
+                        width: 100%;
+                        height: 100%;
+                        border-radius: 8px;
+                        border-width: 2px;
+                        border-color: palette-accent(skin-index);
+                        background: palette-drop-hint-fill(skin-index);
+                    }
+
+                    if editing-tab-id != "": TouchArea {
+                        width: 100%;
+                        height: 100%;
+                        clicked => {
+                            root.blur-search-input();
+                            root.rename-category(root.editing-tab-id, root.editing-tab-draft);
+                            root.editing-tab-id = "";
+                        }
+                    }
+                }
+
+                // ── 状态栏 ──
+                Rectangle {
+                    width: 100%;
+                    horizontal-stretch: 1;
+                    height: 14px;
+                    Text {
+                        x: 0;
+                        width: parent.width;
+                        text: status-text;
+                        color: drop-active || dragging ? palette-accent(skin-index) : palette-muted(skin-index);
+                        font-size: 10px;
+                        vertical-alignment: center;
+                        height: 100%;
+                    }
+                }
+                }
+            }
+        }
+
+        // 主内容根层渲染：直接挂在 Window 根层，避免内容区内部布局/viewport 异常时项目不可见。
+        if filtered-apps.length == 0 && file-hits.length == 0: Rectangle {
+            x: content-overlay-x;
+            y: content-overlay-y;
+            width: root.width - content-overlay-x - 14px;
+            height: root.height - content-overlay-y - 24px;
+            background: transparent;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.blur-search-input(); }
+            }
+
+            Text {
+                y: parent.height / 2 - 26px;
+                width: 100%;
+                height: 24px;
+                text: drop-active ? "松开鼠标，加入此分组"
+                    : (search-text == "" ? "把文件拖进来" : "没有匹配的项目");
+                color: drop-active ? palette-accent(skin-index) : palette-muted(skin-index);
+                font-size: 18px;
+                font-weight: 900;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            Text {
+                y: parent.height / 2 + 4px;
+                width: 100%;
+                height: 18px;
+                text: drop-active ? "支持 exe · lnk · url · 拖入含 http(s) 的文本 · 文件夹 · 图片 · 文档"
+                    : (root.search-scope == 1 ? "选择「计算机」后输入关键字搜索全盘文件"
+                        : (search-text == "" ? "支持 exe · lnk · url · 拖入含 http(s) 的文本 · 文件夹 · 图片 · 文档" : "清空搜索框或拖入新项目"));
+                color: palette-muted(skin-index);
+                font-size: 11px;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+        }
+
+        // ── 计算机搜索：文件列表 ──
+        file-hits-scroll := ScrollView {
+            visible: file-hits.length > 0;
+            x: content-overlay-x;
+            y: content-overlay-y;
+            width: root.width - content-overlay-x - 14px;
+            height: root.height - content-overlay-y - 24px;
+            mouse-drag-pan-enabled: false;
+            vertical-scrollbar-policy: ScrollBarPolicy.as-needed;
+            horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+            viewport-y <=> root.file-hits-viewport-y;
+            viewport-width: self.visible-width;
+            viewport-height: max(self.visible-height, 36px + file-hits.length * 34px);
+
+            TouchArea {
+                width: parent.visible-width;
+                height: parent.visible-height;
+                clicked => { root.blur-search-input(); }
+            }
+
+            // 表头
+            Rectangle {
+                x: 0;
+                y: 0;
+                width: parent.visible-width;
+                height: 28px;
+                background: palette-sidebar(skin-index);
+
+                HorizontalLayout {
+                    padding-left: 10px;
+                    padding-right: 8px;
+                    spacing: 8px;
+
+                    Text {
+                        width: 28%;
+                        height: 100%;
+                        text: "文件名";
+                        color: palette-muted(skin-index);
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 36%;
+                        height: 100%;
+                        text: "所在路径";
+                        color: palette-muted(skin-index);
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        width: 18%;
+                        height: 100%;
+                        text: "修改日期";
+                        color: palette-muted(skin-index);
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                    Text {
+                        horizontal-stretch: 1;
+                        height: 100%;
+                        text: "属性";
+                        color: palette-muted(skin-index);
+                        font-size: 11px;
+                        font-weight: 700;
+                        vertical-alignment: center;
+                    }
+                }
+
+                Rectangle {
+                    y: parent.height - 1px;
+                    width: 100%;
+                    height: 1px;
+                    background: palette-border(skin-index);
+                }
+            }
+
+            for hit[idx] in file-hits: FileHitRow {
+                x: 0;
+                y: 28px + idx * 34px;
+                width: parent.visible-width;
+                item: hit;
+                skin-i: skin-index;
+                row-hover: palette-menu-row-hover(skin-index);
+                text-main: palette-search-input-text(skin-index);
+                text-muted: palette-muted(skin-index);
+                row-sep: palette-border(skin-index);
+                launch => {
+                    root.blur-search-input();
+                    root.launch-file-path(hit.path);
+                }
+                request-menu(mx, my) => {
+                    root.blur-search-input();
+                    root.menu-is-file-hit = true;
+                    root.menu-app-id = hit.id;
+                    root.menu-app-path = hit.path;
+                    root.menu-app-pinned = false;
+                    root.menu-x = mx;
+                    root.menu-y = my;
+                    root.show-menu = true;
+                }
+            }
+        }
+
+        apps-scroll := ScrollView {
+            visible: filtered-apps.length > 0 && file-hits.length == 0;
+            x: content-overlay-x;
+            y: content-overlay-y;
+            width: root.width - content-overlay-x - 14px;
+            height: root.height - content-overlay-y - 24px;
+            // 避免内部 Flickable 与图标拖拽抢手势（首次拖动常被当成滚屏）。
+            mouse-drag-pan-enabled: false;
+            vertical-scrollbar-policy: ScrollBarPolicy.as-needed;
+            horizontal-scrollbar-policy: ScrollBarPolicy.as-needed;
+
+            viewport-y <=> root.apps-viewport-y;
+            viewport-width: self.visible-width;
+
+            property <length> grid-pad: 10px;
+            property <length> grid-cell: (root.icon-size + 52) * 1px;
+            property <length> grid-item: (root.icon-size + 46) * 1px;
+            property <float> grid-ncols: max(1.0, floor((self.visible-width - 2 * grid-pad) / grid-cell));
+            property <float> grid-n: filtered-apps.length * 1.0;
+            property <float> grid-rows: grid-n <= 0.0 ? 0.0 : floor((grid-n - 1.0) / grid-ncols) + 1.0;
+            viewport-height: max(self.visible-height, grid-rows * grid-cell + 2 * grid-pad);
+
+            // 空白处点击：收起搜索焦点；若在搜索结果态则顺带清空搜索
+            TouchArea {
+                width: parent.visible-width;
+                height: parent.visible-height;
+                clicked => {
+                    root.blur-search-input();
+                    if root.search-text != "" {
+                        root.clear-search();
+                    }
+                }
+            }
+
+            for item[idx] in filtered-apps: AppIconCell {
+                property <float> fi: idx * 1.0;
+                property <float> grow: floor(fi / apps-scroll.grid-ncols);
+                property <float> gcol: fi - grow * apps-scroll.grid-ncols;
+                x: apps-scroll.grid-pad + gcol * apps-scroll.grid-cell;
+                y: apps-scroll.grid-pad + grow * apps-scroll.grid-cell;
+                width: apps-scroll.grid-item;
+                height: apps-scroll.grid-item;
+                skin-index: root.skin-index;
+                icon-base: root.icon-size;
+                item: item;
+                search-lit: root.search-text != "";
+                is-being-dragged: root.dragging && root.dragging-app-id == item.id;
+                suppress-launch-on-up: root.suppress-next-launch-click;
+                consume-suppress-launch() => {
+                    root.suppress-next-launch-click = false;
+                }
+                launch => {
+                    root.blur-search-input();
+                    root.launch-app(item);
+                }
+                request-menu(mx, my) => {
+                    root.blur-search-input();
+                    root.menu-is-file-hit = false;
+                    root.menu-app-id = item.id;
+                    root.menu-app-path = item.path;
+                    root.menu-app-pinned = item.pinned;
+                    root.menu-x = mx;
+                    root.menu-y = my;
+                    root.show-menu = true;
+                }
+                drag-start(mx, my) => {
+                    root.dragging = true;
+                    root.drag-cur-x = mx;
+                    root.drag-cur-y = my;
+                    root.dragging-app-id = item.id;
+                    root.dragging-app-path = item.path;
+                    root.dragging-app-name = item.name;
+                    root.dragging-app-icon = item.icon;
+                    root.ext-drag-fired = false;
+                    root.status-text = "拖到左侧分组移动 · 拖出窗口生成快捷方式";
+                }
+                drag-move(mx, my) => {
+                    root.drag-cur-x = mx;
+                    root.drag-cur-y = my;
+                    if !root.ext-drag-fired && root.is-outside-window(mx, my) {
+                        root.ext-drag-fired = true;
+                        root.suppress-next-launch-click = true;
+                        root.request-external-drag(root.dragging-app-path, root.dragging-app-name);
+                        root.dragging = false;
+                        root.dragging-app-id = "";
+                        root.dragging-app-path = "";
+                        root.dragging-app-name = "";
+                        root.dragging-app-icon = @image-url("");
+                        root.status-text = "已发起外部拖拽";
+                    }
+                }
+                drag-end(mx, my) => {
+                    if root.dragging {
+                        if !root.ext-drag-fired {
+                            if root.tab-index-at(mx, my) >= 0
+                            && root.tab-index-at(mx, my) < root.categories.length {
+                                root.move-app-to-category(
+                                    root.dragging-app-id,
+                                    root.categories[root.tab-index-at(mx, my)].id
+                                );
+                            }
+                        }
+                        root.dragging = false;
+                        root.dragging-app-id = "";
+                        root.dragging-app-path = "";
+                        root.dragging-app-name = "";
+                        root.dragging-app-icon = @image-url("");
+                        root.suppress-next-launch-click = false;
+                        root.status-text = "就绪";
+                    }
+                }
+            }
+        }
+
+        // 拖拽跟随预览（半透明）
+        if root.dragging: Rectangle {
+            width: (root.icon-size + 14) * 1px;
+            height: (root.icon-size + 14) * 1px;
+            // 预览图与鼠标正中心对齐。
+            x: min(max(root.drag-cur-x - self.width / 2, 0px), root.width - self.width);
+            y: min(max(root.drag-cur-y - self.height / 2, 0px), root.height - self.height);
+            border-radius: 12px;
+            background: #00000055;
+            border-width: 1px;
+            border-color: #ffffff55;
+            z: 9999;
+            clip: true;
+
+            Image {
+                source: root.dragging-app-icon;
+                width: root.icon-size * 1px;
+                height: root.icon-size * 1px;
+                x: (parent.width - self.width) / 2;
+                y: (parent.height - self.height) / 2;
+                image-fit: contain;
+            }
+        }
+
+        // ── 关于作者 ──
+        if show-about-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => { root.show-about-dialog = false; }
+                }
+            }
+
+            Rectangle {
+                width: min(root.width - 40px, 320px);
+                height: 220px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "关于作者";
+                        color: palette-strong-heading(skin-index);
+                        font-size: 14px;
+                        font-weight: 800;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "版本：" + root.app-version;
+                        color: palette-muted(skin-index);
+                        font-size: 11px;
+                        font-weight: 600;
+                        horizontal-alignment: center;
+                    }
+
+                    Text {
+                        text: "作者 亦安\n\nQQ：2021073661\n\nQQ群：1083780527";
+                        color: palette-settings-row-text(skin-index);
+                        font-size: 12px;
+                        wrap: word-wrap;
+                        horizontal-alignment: center;
+                    }
+
+                    Rectangle {
+                        horizontal-stretch: 1;
+                        height: 1px;
+                        background: palette-border(skin-index);
+                    }
+
+                    Rectangle {
+                        height: 30px;
+                        border-radius: 6px;
+                        background: palette-dialog-secondary-btn(skin-index);
+                        border-width: 1px;
+                        border-color: palette-settings-row-bd(skin-index);
+
+                        Text {
+                            width: 100%;
+                            height: 100%;
+                            text: "确定";
+                            color: palette-accent(skin-index);
+                            font-size: 12px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => {
+                                root.show-about-dialog = false;
+                                root.about-confirm();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 快捷键对话框 ──
+        if show-hotkey-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => {
+                        root.show-hotkey-dialog = false;
+                        root.settings-hotkey-dialog-closed();
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 320px;
+                height: 210px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 16px;
+                    spacing: 10px;
+
+                    Text {
+                        text: "自定义快捷键（显示/隐藏主窗口）";
+                        color: palette-strong-heading(skin-index);
+                        font-size: 13px;
+                        font-weight: 800;
+                    }
+
+                    Rectangle {
+                        height: 22px;
+
+                        HorizontalLayout {
+                            spacing: 8px;
+                            alignment: center;
+
+                            Rectangle {
+                                width: 18px;
+                                height: 18px;
+                                border-radius: 4px;
+                                border-width: hotkey-enabled ? 0px : 1.5px;
+                                border-color: palette-search-bd(skin-index);
+                                background: hotkey-enabled ? palette-accent(skin-index) : palette-search(skin-index);
+
+                                Text {
+                                    width: 100%;
+                                    height: 100%;
+                                    text: "✓";
+                                    color: #ffffff;
+                                    font-size: 11px;
+                                    font-weight: 800;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                    visible: hotkey-enabled;
+                                }
+                            }
+
+                            Text {
+                                text: "启用快捷键";
+                                color: palette-search-input-text(skin-index);
+                                font-size: 12px;
+                                vertical-alignment: center;
+                            }
+                        }
+
+                        TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => { root.settings-toggle-hotkey-enabled(); }
+                        }
+                    }
+
+                    Text {
+                        text: "点击输入框后按下键盘组合键；鼠标仅识别中键与侧键";
+                        color: palette-muted(skin-index);
+                        font-size: 10px;
+                        wrap: word-wrap;
+                    }
+
+                    Rectangle {
+                        height: 36px;
+                        border-radius: 6px;
+                        background: hotkey-capturing ? (skin-index == 1 ? #e8f4ff : skin-index == 2 ? #484038 : skin-index == 3 ? #403058 : #1a3050) : palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: hotkey-capturing ? palette-accent(skin-index) : palette-search-bd(skin-index);
+
+                        Text {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: 100%;
+                            vertical-alignment: center;
+                            color: palette-search-input-text(skin-index);
+                            font-size: 12px;
+                            text: hotkey-label;
+                        }
+
+                        capture-ta := TouchArea {
+                            width: 100%;
+                            height: 100%;
+                            clicked => { root.settings-hotkey-begin-capture(); }
+                            pointer-event(e) => {
+                                if hotkey-capturing && e.kind == PointerEventKind.down {
+                                    if e.button == PointerEventButton.middle {
+                                        root.settings-hotkey-capture-mouse(0);
+                                    } else if e.button == PointerEventButton.back {
+                                        root.settings-hotkey-capture-mouse(1);
+                                    } else if e.button == PointerEventButton.forward {
+                                        root.settings-hotkey-capture-mouse(2);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        Rectangle {
+                            width: 56px;
+                            height: 26px;
+                            border-radius: 5px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            Text {
+                                text: "关闭";
+                                color: palette-dialog-secondary-text(skin-index);
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea {
+                                clicked => {
+                                    root.show-hotkey-dialog = false;
+                                    root.settings-hotkey-dialog-closed();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 右键菜单 ──
+        if show-menu: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.show-menu = false; }
+            }
+
+            app-menu-panel := Rectangle {
+                x: min(root.menu-x, root.width - self.width - 8px);
+                y: min(root.menu-y, root.height - self.height - 8px);
+                width: 168px;
+                height: app-menu-items.preferred-height;
+                border-radius: 6px;
+                background: palette-menu-surface(skin-index);
+                border-width: 1px;
+                border-color: palette-settings-row-bd(skin-index);
+                drop-shadow-color: #00000080;
+                drop-shadow-blur: 8px;
+                drop-shadow-offset-y: 2px;
+                clip: true;
+
+                ClickShield { }
+
+                app-menu-items := VerticalLayout {
+                    vertical-stretch: 0;
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+
+                    if root.menu-is-file-hit: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "打开";
+                        clicked => {
+                            root.show-menu = false;
+                            root.launch-file-path(root.menu-app-path);
+                        }
+                    }
+                    if !root.menu-is-file-hit: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "编辑…";
+                        clicked => {
+                            root.show-menu = false;
+                            root.request-edit(root.menu-app-id);
+                        }
+                    }
+                    if !root.menu-is-file-hit: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: root.menu-app-pinned ? "取消置顶" : "置顶";
+                        clicked => {
+                            root.show-menu = false;
+                            root.toggle-pin(root.menu-app-id);
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "打开位置";
+                        clicked => {
+                            root.show-menu = false;
+                            root.open-location(root.menu-is-file-hit ? root.menu-app-path : root.menu-app-id);
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "管理员运行";
+                        clicked => {
+                            root.show-menu = false;
+                            root.run-as-admin(root.menu-is-file-hit ? root.menu-app-path : root.menu-app-id);
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "属性";
+                        clicked => {
+                            root.show-menu = false;
+                            root.show-properties(root.menu-is-file-hit ? root.menu-app-path : root.menu-app-id);
+                        }
+                    }
+                    if !root.menu-is-file-hit: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "删除";
+                        danger: true;
+                        clicked => {
+                            root.show-menu = false;
+                            root.delete-app(root.menu-app-id);
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 搜索范围下拉菜单 ──
+        if show-search-scope-menu: Rectangle {
+            width: 100%;
+            height: 100%;
+            z: 40;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.show-search-scope-menu = false; }
+            }
+
+            Rectangle {
+                // 对应标题栏搜索行左侧下拉位置
+                x: 12px;
+                y: 50px;
+                width: 120px;
+                height: 64px;
+                border-radius: 6px;
+                background: palette-menu-surface(skin-index);
+                border-width: 1px;
+                border-color: palette-settings-row-bd(skin-index);
+                drop-shadow-color: #00000080;
+                drop-shadow-blur: 8px;
+                drop-shadow-offset-y: 2px;
+
+                VerticalLayout {
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "搜索程序内";
+                        danger: false;
+                        clicked => {
+                            root.search-scope = 0;
+                            root.show-search-scope-menu = false;
+                            root.status-text = "搜索范围：程序内";
+                            if root.search-text != "" {
+                                root.clear-search();
+                            }
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "搜索计算机";
+                        danger: false;
+                        clicked => {
+                            root.search-scope = 1;
+                            root.show-search-scope-menu = false;
+                            root.status-text = "搜索范围：计算机（Everything）";
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 分组标签右键菜单 ──
+        if show-category-tab-menu: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            TouchArea {
+                width: 100%;
+                height: 100%;
+                clicked => { root.show-category-tab-menu = false; }
+            }
+
+            Rectangle {
+                x: min(root.category-tab-menu-x, root.width - self.width - 8px);
+                y: min(root.category-tab-menu-y, root.height - self.height - 8px);
+                width: 180px;
+                height: 164px;
+                border-radius: 6px;
+                background: palette-menu-surface(skin-index);
+                border-width: 1px;
+                border-color: palette-settings-row-bd(skin-index);
+                drop-shadow-color: #00000080;
+                drop-shadow-blur: 8px;
+                drop-shadow-offset-y: 2px;
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding-top: 4px;
+                    padding-bottom: 4px;
+
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "启动分组下所有程序";
+                        danger: false;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.launch-category(root.category-tab-menu-cat-id);
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "新增分组…";
+                        danger: false;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.cat-name-input = "";
+                            root.show-category-dialog = true;
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "重命名";
+                        danger: false;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.editing-tab-draft = root.category-tab-menu-cat-name;
+                            root.editing-tab-id = root.category-tab-menu-cat-id;
+                        }
+                    }
+                    if !root.category-tab-menu-has-password: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "密码保护";
+                        danger: false;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.password-dialog-mode = 0;
+                            root.password-dialog-cat-id = root.category-tab-menu-cat-id;
+                            root.password-dialog-cat-name = root.category-tab-menu-cat-name;
+                            root.password-input = "";
+                            root.password-error = "";
+                            root.show-password-dialog = true;
+                        }
+                    }
+                    if root.category-tab-menu-has-password: MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "清除分组密码";
+                        danger: false;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.password-dialog-mode = 2;
+                            root.password-dialog-cat-id = root.category-tab-menu-cat-id;
+                            root.password-dialog-cat-name = root.category-tab-menu-cat-name;
+                            root.password-input = "";
+                            root.password-error = "";
+                            root.show-password-dialog = true;
+                        }
+                    }
+                    MenuRow {
+                        hover-fill: palette-menu-row-hover(skin-index);
+                        hover-fill-danger: palette-menu-danger-hover(skin-index);
+                        text-idle: palette-menu-text(skin-index);
+                        text-hover: palette-menu-text-hover(skin-index);
+                        danger-idle: palette-menu-danger-idle(skin-index);
+                        danger-hover: palette-menu-danger-text-hover(skin-index);
+                        text: "删除分组…";
+                        danger: true;
+                        clicked => {
+                            root.show-category-tab-menu = false;
+                            root.show-delete-category-dialog = true;
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 分组密码对话框 ──
+        if show-password-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+            z: 50;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => {
+                        if root.password-dialog-mode == 0 {
+                            root.cancel-password-dialog();
+                        }
+                    }
+                }
+            }
+
+            Rectangle {
+                width: 340px;
+                height: password-error == "" ? 210px : 232px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+
+                    Text {
+                        text: root.password-dialog-mode == 0 ? "设定分组密码"
+                            : (root.password-dialog-mode == 2 ? "清除分组密码" : "输入分组密码");
+                        color: palette-strong-heading(skin-index);
+                        font-size: 14px;
+                        font-weight: 800;
+                    }
+
+                    Text {
+                        wrap: word-wrap;
+                        text: root.password-dialog-mode == 0
+                            ? "为分组「" + password-dialog-cat-name + "」设置访问密码（明文显示，便于确认）。确认后该分组将被锁定。"
+                            : (root.password-dialog-mode == 2
+                                ? "清除分组「" + password-dialog-cat-name + "」的密码。请输入当前密码；忘记时可使用管理员密码。"
+                                : "分组「" + password-dialog-cat-name + "」已锁定，请输入正确密码以查看内容。");
+                        color: palette-muted(skin-index);
+                        font-size: 12px;
+                    }
+
+                    Rectangle {
+                        height: 32px;
+                        border-radius: 5px;
+                        background: palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: palette-search-bd(skin-index);
+
+                        Text {
+                            x: 10px;
+                            height: 100%;
+                            text: root.password-dialog-mode == 0 ? "输入要设定的密码（明文）"
+                                : (root.password-dialog-mode == 2 ? "当前密码或管理员密码" : "请输入密码");
+                            color: palette-muted(skin-index);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            visible: password-input == "";
+                        }
+
+                        // 明文显示，方便确认当前输入的密码
+                        TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: 100%;
+                            text <=> password-input;
+                            color: palette-search-input-text(skin-index);
+                            single-line: true;
+                            vertical-alignment: center;
+                            accepted => {
+                                root.confirm-password-dialog(root.password-input);
+                            }
+                        }
+                    }
+
+                    if password-error != "": Text {
+                        text: password-error;
+                        color: #e85d5d;
+                        font-size: 11px;
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 10px;
+                        vertical-stretch: 1;
+
+                        Rectangle {
+                            width: 76px;
+                            height: 30px;
+                            border-radius: 6px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-row-bd(skin-index);
+
+                            Text {
+                                text: "取消";
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: palette-settings-row-text(skin-index);
+                                font-size: 12px;
+                            }
+
+                            TouchArea {
+                                clicked => { root.cancel-password-dialog(); }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 76px;
+                            height: 30px;
+                            border-radius: 6px;
+                            background: password-input == "" ? palette-dialog-secondary-btn(skin-index) : palette-accent(skin-index);
+                            border-width: 1px;
+                            border-color: password-input == "" ? palette-settings-row-bd(skin-index) : palette-accent(skin-index);
+
+                            Text {
+                                text: "确认";
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: password-input == "" ? palette-dialog-secondary-text(skin-index) : palette-title(skin-index);
+                                font-size: 12px;
+                                font-weight: password-input == "" ? 400 : 700;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    if root.password-input != "" {
+                                        root.confirm-password-dialog(root.password-input);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 删除分组确认 ──
+        if show-delete-category-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => { root.show-delete-category-dialog = false; }
+                }
+            }
+
+            Rectangle {
+                width: 360px;
+                height: 200px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "删除分组";
+                        color: palette-strong-heading(skin-index);
+                        font-size: 14px;
+                        font-weight: 800;
+                    }
+
+                    Text {
+                        wrap: word-wrap;
+                        text: "确定要删除分组「" + category-tab-menu-cat-name + "」吗？\n\n该分组内的所有快捷方式将一并删除，且无法撤销。";
+                        color: palette-muted(skin-index);
+                        font-size: 12px;
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 10px;
+                        vertical-stretch: 1;
+
+                        Rectangle {
+                            width: 76px;
+                            height: 30px;
+                            border-radius: 6px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-row-bd(skin-index);
+
+                            Text {
+                                text: "取消";
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: palette-settings-row-text(skin-index);
+                                font-size: 12px;
+                            }
+
+                            TouchArea {
+                                clicked => { root.show-delete-category-dialog = false; }
+                            }
+                        }
+
+                        Rectangle {
+                            width: 76px;
+                            height: 30px;
+                            border-radius: 6px;
+                            background: palette-settings-danger-bg-hover(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-danger-bd(skin-index);
+
+                            Text {
+                                text: "删除";
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                                color: palette-settings-danger-text(skin-index);
+                                font-size: 12px;
+                                font-weight: 700;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    root.editing-tab-id = "";
+                                    root.delete-category(root.category-tab-menu-cat-id);
+                                    root.show-delete-category-dialog = false;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 编辑对话框 ──
+        if show-edit-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => { root.show-edit-dialog = false; }
+                }
+            }
+
+            Rectangle {
+                width: 360px;
+                height: 372px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 18px;
+                    spacing: 10px;
+
+                    Text {
+                        text: "编辑项目";
+                        color: palette-strong-heading(skin-index);
+                        font-size: 13px;
+                        font-weight: 800;
+                    }
+
+                    // 名称
+                    Text { text: "名称"; color: palette-muted(skin-index); font-size: 10px; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: palette-search-bd(skin-index);
+                        TextInput {
+                            x: 8px;
+                            width: parent.width - 16px;
+                            height: 100%;
+                            text <=> edit-name;
+                            color: palette-search-input-text(skin-index);
+                            single-line: true;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // 路径
+                    Text { text: "路径"; color: palette-muted(skin-index); font-size: 10px; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: palette-search-bd(skin-index);
+                        TextInput {
+                            x: 8px;
+                            width: parent.width - 16px;
+                            height: 100%;
+                            text <=> edit-path;
+                            color: palette-search-input-text(skin-index);
+                            single-line: true;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    // 启动参数
+                    Text { text: "启动参数"; color: palette-muted(skin-index); font-size: 10px; }
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: palette-search-bd(skin-index);
+                        TextInput {
+                            x: 8px;
+                            width: parent.width - 16px;
+                            height: 100%;
+                            text <=> edit-args;
+                            color: palette-search-input-text(skin-index);
+                            single-line: true;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        spacing: 10px;
+                        // 分组
+                        VerticalLayout {
+                            horizontal-stretch: 2;
+                            spacing: 4px;
+                            Text { text: "分组"; color: palette-muted(skin-index); font-size: 10px; }
+                            Rectangle {
+                                height: 28px;
+                                border-radius: 4px;
+                                background: palette-search(skin-index);
+                                border-width: 1px;
+                                border-color: palette-search-bd(skin-index);
+                                TextInput {
+                                    x: 8px;
+                                    width: parent.width - 16px;
+                                    height: 100%;
+                                    text <=> edit-category-id;
+                                    color: palette-search-input-text(skin-index);
+                                    single-line: true;
+                                    vertical-alignment: center;
+                                }
+                            }
+                        }
+                        // 排序
+                        VerticalLayout {
+                            horizontal-stretch: 1;
+                            spacing: 4px;
+                            Text { text: "排序"; color: palette-muted(skin-index); font-size: 10px; }
+                            Text { text: "1=最前"; color: palette-muted(skin-index); font-size: 8px; }
+                            Rectangle {
+                                height: 28px;
+                                border-radius: 4px;
+                                background: palette-search(skin-index);
+                                border-width: 1px;
+                                border-color: palette-search-bd(skin-index);
+                                TextInput {
+                                    x: 8px;
+                                    width: parent.width - 16px;
+                                    height: 100%;
+                                    text <=> edit-sort-text;
+                                    color: palette-search-input-text(skin-index);
+                                    single-line: true;
+                                    vertical-alignment: center;
+                                    input-type: number;
+                                }
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        height: 28px;
+                        border-radius: 4px;
+                        background: palette-dialog-secondary-btn(skin-index);
+                        border-width: 1px;
+                        border-color: palette-settings-row-bd(skin-index);
+                        Text {
+                            text: "更换图标…";
+                            color: palette-dialog-secondary-text(skin-index);
+                            font-size: 11px;
+                            horizontal-alignment: center;
+                            vertical-alignment: center;
+                        }
+                        TouchArea {
+                            clicked => {
+                                root.import-custom-icon(root.edit-id);
+                            }
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 60px;
+                            height: 28px;
+                            border-radius: 4px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-row-bd(skin-index);
+                            Text { text: "取消"; color: palette-dialog-secondary-text(skin-index); font-size: 12px; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea { clicked => { root.show-edit-dialog = false; } }
+                        }
+
+                        Rectangle {
+                            width: 60px;
+                            height: 28px;
+                            border-radius: 4px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-row-bd(skin-index);
+                            Text { text: "保存"; color: palette-accent(skin-index); font-size: 12px; font-weight: 700; horizontal-alignment: center; vertical-alignment: center; }
+                            TouchArea {
+                                clicked => {
+                                    root.show-edit-dialog = false;
+                                    root.save-app-edit(
+                                        root.edit-id,
+                                        root.edit-name,
+                                        root.edit-path,
+                                        root.edit-args,
+                                        root.edit-category-id,
+                                        root.edit-sort-text,
+                                    );
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ── 新建分组对话框 ──
+        if show-category-dialog: Rectangle {
+            width: 100%;
+            height: 100%;
+
+            Rectangle {
+                width: 100%;
+                height: 100%;
+                background: #00000088;
+                TouchArea {
+                    width: 100%;
+                    height: 100%;
+                    clicked => { root.show-category-dialog = false; }
+                }
+            }
+
+            Rectangle {
+                width: 290px;
+                height: 168px;
+                x: (root.width - self.width) / 2;
+                y: (root.height - self.height) / 2;
+                border-radius: 10px;
+                background: palette-frame(skin-index);
+                border-width: 1px;
+                border-color: palette-border(skin-index);
+
+                ClickShield { }
+
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+
+                    Text {
+                        text: "新建分组";
+                        color: palette-strong-heading(skin-index);
+                        font-size: 13px;
+                        font-weight: 800;
+                    }
+
+                    Rectangle {
+                        height: 32px;
+                        border-radius: 5px;
+                        background: palette-search(skin-index);
+                        border-width: 1px;
+                        border-color: palette-search-bd(skin-index);
+
+                        Text {
+                            x: 10px;
+                            height: 100%;
+                            text: "分组名称";
+                            color: palette-muted(skin-index);
+                            font-size: 11px;
+                            vertical-alignment: center;
+                            visible: cat-name-input == "";
+                        }
+
+                        TextInput {
+                            x: 10px;
+                            width: parent.width - 20px;
+                            height: 100%;
+                            text <=> cat-name-input;
+                            color: palette-search-input-text(skin-index);
+                            single-line: true;
+                            vertical-alignment: center;
+                        }
+                    }
+
+                    HorizontalLayout {
+                        alignment: end;
+                        spacing: 8px;
+
+                        Rectangle {
+                            width: 58px;
+                            height: 28px;
+                            border-radius: 5px;
+                            background: palette-dialog-secondary-btn(skin-index);
+                            border-width: 1px;
+                            border-color: palette-settings-row-bd(skin-index);
+
+                            Text {
+                                text: "取消";
+                                color: palette-dialog-secondary-text(skin-index);
+                                font-size: 12px;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+                            TouchArea { clicked => { root.show-category-dialog = false; } }
+                        }
+
+                        Rectangle {
+                            width: 58px;
+                            height: 28px;
+                            border-radius: 5px;
+                            background: cat-name-input == "" ? palette-dialog-secondary-btn(skin-index) : palette-accent(skin-index);
+                            border-width: 1px;
+                            border-color: cat-name-input == "" ? palette-settings-row-bd(skin-index) : palette-accent(skin-index);
+
+                            Text {
+                                text: "创建";
+                                color: cat-name-input == "" ? palette-dialog-secondary-text(skin-index) : palette-title(skin-index);
+                                font-size: 12px;
+                                font-weight: cat-name-input == "" ? 400 : 700;
+                                horizontal-alignment: center;
+                                vertical-alignment: center;
+                            }
+
+                            TouchArea {
+                                clicked => {
+                                    if cat-name-input != "" {
+                                        root.add-category({
+                                            id: "",
+                                            name: cat-name-input,
+                                            color: #4a82c4,
+                                            sort-order: 0,
+                                        });
+                                        root.show-category-dialog = false;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// 独立 HWND：与主启动器窗口无关，在光标附近显示；失焦由 Rust 隐藏
+export component SettingsPopup inherits Window {
+    title: "设置";
+    width: 336px;
+    out property <length> layout-height: settings-sheet.preferred-height + 12px;
+    height: layout-height;
+    background: palette-frame(skin-index);
+    no-frame: true;
+    default-font-family: "Microsoft YaHei UI";
+    default-font-size: 12px;
+
+    in-out property <int> skin-index: 0;
+    in-out property <string> launcher-title: "亦安";
+    in-out property <bool> cfg-always-on-top: false;
+    in-out property <bool> cfg-auto-start: false;
+    in-out property <bool> cfg-start-minimized: false;
+    in-out property <bool> cfg-edge-auto-hide: false;
+    in-out property <bool> cfg-hide-on-launch-click: false;
+    in-out property <string> background-image: "";
+    in-out property <float> icon-size: 46;
+    in-out property <float> window-opacity: 100;
+
+    callback settings-save-launcher-title(string);
+    callback settings-set-icon-size(float);
+    callback settings-set-window-opacity(float);
+    callback settings-toggle-always-on-top();
+    callback settings-convert-absolute();
+    callback settings-convert-relative();
+    callback settings-open-hotkey-dialog();
+    callback settings-set-skin(int);
+    callback settings-toggle-auto-start();
+    callback settings-toggle-start-minimized();
+    callback settings-toggle-edge-auto-hide();
+    callback settings-toggle-hide-on-launch-click();
+    callback settings-open-background-picker();
+    callback settings-clear-background();
+    callback settings-open-help();
+    callback settings-open-about();
+    callback settings-quit-app();
+
+    pure function palette-frame(si: int) -> brush {
+        si == 1 ? #f5f7fb : si == 2 ? #3a3024 : si == 3 ? #2e2438 : #0b1018
+    }
+
+    pure function palette-border(si: int) -> brush {
+        si == 1 ? #c8d0e0 : si == 2 ? #5a4838 : si == 3 ? #4a3c58 : #1a2535
+    }
+
+    Rectangle {
+        width: 100%;
+        height: 100%;
+        background: palette-frame(skin-index);
+        border-width: 1px;
+        border-color: palette-border(skin-index);
+
+        settings-sheet := SettingsSheet {
+            width: parent.width;
+                skin-index <=> root.skin-index;
+                launcher-title <=> root.launcher-title;
+                cfg-always-on-top <=> root.cfg-always-on-top;
+                cfg-auto-start <=> root.cfg-auto-start;
+                cfg-start-minimized <=> root.cfg-start-minimized;
+                cfg-edge-auto-hide <=> root.cfg-edge-auto-hide;
+                cfg-hide-on-launch-click <=> root.cfg-hide-on-launch-click;
+                icon-size <=> root.icon-size;
+                window-opacity <=> root.window-opacity;
+
+                save-launcher-title(s) => {
+                    root.settings-save-launcher-title(s);
+                }
+                toggle-always-on-top => {
+                    root.settings-toggle-always-on-top();
+                }
+                convert-absolute => {
+                    root.settings-convert-absolute();
+                }
+                convert-relative => {
+                    root.settings-convert-relative();
+                }
+                open-hotkey-editor => {
+                    root.settings-open-hotkey-dialog();
+                }
+                set-icon-size(v) => {
+                    root.settings-set-icon-size(v);
+                }
+                set-window-opacity(v) => {
+                    root.settings-set-window-opacity(v);
+                }
+                set-skin(si) => {
+                    root.settings-set-skin(si);
+                }
+                toggle-auto-start => {
+                    root.settings-toggle-auto-start();
+                }
+                toggle-start-minimized => {
+                    root.settings-toggle-start-minimized();
+                }
+                toggle-edge-auto-hide => {
+                    root.settings-toggle-edge-auto-hide();
+                }
+                toggle-hide-on-launch-click => {
+                    root.settings-toggle-hide-on-launch-click();
+                }
+                open-background-picker => {
+                    root.settings-open-background-picker();
+                }
+                clear-background => {
+                    root.settings-clear-background();
+                }
+                open-help => {
+                    root.settings-open-help();
+                }
+                open-about => {
+                    root.settings-open-about();
+                }
+                quit-app => {
+                    root.settings-quit-app();
+                }
+        }
+    }
+}

@@ -1,0 +1,15 @@
+# 构建产物：体积巨大（3.7GB），且 target/debug 下有本机运行生成的 config.json
+/target
+
+# 改动前的本地备份，不是源码
+/.backup
+
+# 第三方 Everything SDK 原始包（zip/exe/dll），构建过程不需要
+# build.rs 实际使用的是根目录的 everything/
+/vendor/everything
+
+# 编辑器 / 系统
+.vscode/
+.idea/
+Thumbs.db
+desktop.ini

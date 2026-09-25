@@ -1,0 +1,776 @@
+// 图标大小：全宽横向滑条（左小右大），TouchArea 覆盖整条可拖区域
+component IconSizeSlider inherits Rectangle {
+    in property <int> skin-i;
+    in-out property <float> value: 46;
+    in property <float> minimum: 28;
+    in property <float> maximum: 64;
+    callback changed(float);
+    callback apply-x(length);
+
+    width: 100%;
+    height: 28px;
+    property <length> thumb-d: 14px;
+    property <length> track-h: 4px;
+    property <float> ratio: (maximum - minimum) <= 0.001 ? 0.5 : (value - minimum) / (maximum - minimum);
+    property <length> thumb-x: (root.width - thumb-d) * ratio;
+
+    // 底轨（无左侧填充条，避免拖动时宽度动画）
+    Rectangle {
+        y: (parent.height - track-h) / 2;
+        width: parent.width;
+        height: track-h;
+        border-radius: 2px;
+        background: skin-i == 1 ? #b8c8dc : skin-i == 2 ? #5a4838 : skin-i == 3 ? #4a3c58 : #3a4a5c;
+    }
+
+    // 滑块（禁用位移动画，随拖动即时跳转）
+    Rectangle {
+        width: thumb-d;
+        height: thumb-d;
+        border-radius: thumb-d / 2;
+        x: thumb-x;
+        y: (parent.height - self.height) / 2;
+        background: #ffffff;
+        border-width: 2px;
+        border-color: skin-i == 1 ? #2070c0 : skin-i == 2 ? #d08040 : skin-i == 3 ? #c070a0 : #c0a030;
+        animate x { duration: 0ms; }
+    }
+
+    slider-ta := TouchArea {
+        z: 100;
+        width: 100%;
+        height: 100%;
+
+        pointer-event(e) => {
+            if e.button != PointerEventButton.left {
+                return;
+            }
+            if e.kind == PointerEventKind.down || e.kind == PointerEventKind.move {
+                root.apply-x(self.mouse-x);
+            }
+        }
+
+        moved => {
+            if self.pressed {
+                root.apply-x(self.mouse-x);
+            }
+        }
+    }
+
+    apply-x(mx) => {
+        let track-w = root.width - root.thumb-d;
+        if track-w <= 0px {
+            return;
+        }
+        let x = min(track-w, max(0px, mx - root.thumb-d / 2));
+        let t = x / track-w;
+        let v = round(root.minimum + t * (root.maximum - root.minimum));
+        root.value = v;
+        root.changed(v);
+    }
+}
+
+// 设置菜单：按钮行
+component SettingsRowBtn inherits Rectangle {
+    in property <string> label;
+    in property <bool> danger: false;
+    in property <brush> fill-idle;
+    in property <brush> fill-hover;
+    in property <brush> stroke-bd;
+    in property <brush> lbl;
+    in property <brush> danger-fill-hover;
+    in property <brush> danger-bd;
+    in property <brush> lbl-danger;
+    callback clicked;
+
+    height: 28px;
+    border-radius: 6px;
+    background: ta.has-hover ? (danger ? danger-fill-hover : fill-hover) : fill-idle;
+    border-width: 1px;
+    border-color: danger ? danger-bd : stroke-bd;
+
+    Text {
+        x: 10px;
+        text: root.label;
+        color: danger ? lbl-danger : lbl;
+        font-size: 12px;
+        vertical-alignment: center;
+        height: 100%;
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+// 设置菜单：勾选行（方框 + 对勾，贴近系统复选框观感）
+component SettingsRowToggle inherits Rectangle {
+    in property <bool> checked;
+    in property <string> label;
+    in property <brush> accent;
+    in property <brush> fill-idle;
+    in property <brush> fill-hover;
+    in property <brush> stroke-bd;
+    in property <brush> lbl;
+    in property <brush> toggle-inner;
+    in property <brush> toggle-bd;
+    callback clicked;
+
+    height: 30px;
+    border-radius: 6px;
+    background: ta.has-hover ? fill-hover : fill-idle;
+    border-width: 1px;
+    border-color: stroke-bd;
+
+    VerticalLayout {
+        alignment: center;
+        HorizontalLayout {
+            padding-left: 10px;
+            padding-right: 10px;
+            spacing: 10px;
+
+            Rectangle {
+                width: 18px;
+                height: 18px;
+                border-radius: 4px;
+                border-width: checked ? 0px : 1.5px;
+                border-color: toggle-bd;
+                background: checked ? root.accent : toggle-inner;
+
+                Text {
+                    width: 100%;
+                    height: 100%;
+                    text: "✓";
+                    color: #ffffff;
+                    font-size: 11px;
+                    font-weight: 800;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                    visible: checked;
+                }
+            }
+
+            Text {
+                horizontal-stretch: 1;
+                text: root.label;
+                color: lbl;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+// 设置面板 · 外观主题预设卡片（色条 + 标题/副标题，固定坐标避免 Rectangle 多子项错位）
+component SkinPresetChip inherits Rectangle {
+    in property <bool> selected;
+    in property <int> panel-skin;
+    in property <brush> preview-a;
+    in property <brush> preview-b;
+    in property <brush> preview-c;
+    in property <string> title-text;
+    in property <string> sub-text;
+    in property <brush> ring;
+    callback clicked;
+
+    property <length> pad: 8px;
+    property <length> inner-w: root.width - 2 * pad;
+
+    pure function chip-border-unsel(si: int) -> brush {
+        si == 1 ? #d0dae8 : si == 2 ? #584838 : si == 3 ? #483858 : #243044
+    }
+
+    pure function chip-bg-idle(si: int) -> brush {
+        si == 1 ? #f0f4fa : si == 2 ? #2e261e : si == 3 ? #241c2e : #0f1520
+    }
+
+    pure function chip-bg-hover(si: int) -> brush {
+        si == 1 ? #eef6ff : si == 2 ? #4a4038 : si == 3 ? #403050 : #141e30
+    }
+
+    pure function chip-bg-selected(si: int) -> brush {
+        si == 1 ? #e8f0fc : si == 2 ? #484038 : si == 3 ? #403058 : #121b2c
+    }
+
+    pure function chip-title(si: int) -> brush {
+        si == 1 ? #1a2538 : si == 2 ? #fff5ea : si == 3 ? #ece8f8 : #d0dce8
+    }
+
+    pure function chip-sub(si: int) -> brush {
+        si == 1 ? #607790 : si == 2 ? #908070 : si == 3 ? #806878 : #2e3c4e
+    }
+
+    // 勿设 width:100%，否则每张卡占满整行，2×2 会被挤成单列并挤出窗口
+    height: 76px;
+    horizontal-stretch: 1;
+    border-radius: 8px;
+    background: selected ? chip-bg-selected(panel-skin) : (ta.has-hover ? chip-bg-hover(panel-skin) : chip-bg-idle(panel-skin));
+    border-width: selected ? 2px : 1px;
+    border-color: selected ? ring : chip-border-unsel(panel-skin);
+
+    HorizontalLayout {
+        x: pad;
+        y: pad;
+        width: inner-w;
+        height: 12px;
+        spacing: 4px;
+
+        Rectangle { horizontal-stretch: 1; height: 12px; background: preview-a; border-radius: 2px; }
+        Rectangle { horizontal-stretch: 1; height: 12px; background: preview-b; border-radius: 2px; }
+        Rectangle { horizontal-stretch: 1; height: 12px; background: preview-c; border-radius: 2px; }
+    }
+
+    Text {
+        x: pad;
+        y: 24px;
+        width: inner-w;
+        height: 14px;
+        text: title-text;
+        color: chip-title(panel-skin);
+        font-size: 10px;
+        font-weight: 800;
+        wrap: no-wrap;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    Text {
+        x: pad;
+        y: 40px;
+        width: inner-w;
+        height: 12px;
+        text: sub-text;
+        color: chip-sub(panel-skin);
+        font-size: 8px;
+        wrap: no-wrap;
+        overflow: elide;
+        vertical-alignment: center;
+    }
+
+    ta := TouchArea {
+        width: 100%;
+        height: 100%;
+        clicked => { root.clicked(); }
+    }
+}
+
+export component SettingsSheet inherits VerticalLayout {
+    padding: 10px;
+    spacing: 5px;
+    alignment: start;
+    width: 100%;
+    vertical-stretch: 0;
+
+    pure function ss-muted(si: int) -> brush {
+        si == 1 ? #607790 : si == 2 ? #908070 : si == 3 ? #806878 : #2e3c4e
+    }
+    pure function ss-accent(si: int) -> brush {
+        si == 1 ? #2070c0 : si == 2 ? #d08040 : si == 3 ? #c070a0 : #c0a030
+    }
+    pure function ss-search(si: int) -> brush {
+        si == 1 ? #ffffff : si == 2 ? #2c241c : si == 3 ? #140f18 : #07090f
+    }
+    pure function ss-search-bd(si: int) -> brush {
+        si == 1 ? #b8c4d8 : si == 2 ? #4a3c30 : si == 3 ? #3a3048 : #18243a
+    }
+    pure function ss-search-input-text(si: int) -> brush {
+        si == 1 ? #1a2538 : si == 2 ? #e8dcd4 : si == 3 ? #dcd0e8 : #c8d4e2
+    }
+    pure function ss-strong-heading(si: int) -> brush {
+        si == 1 ? #1a2538 : si == 2 ? #fff5ea : si == 3 ? #ece8f8 : #d0dce8
+    }
+    pure function ss-settings-section-heading(si: int) -> brush {
+        si == 1 ? #384860 : si == 2 ? #e8d8c8 : si == 3 ? #d8c8e8 : #d4dce8
+    }
+    pure function ss-settings-row-bg(si: int) -> brush {
+        si == 1 ? #eef2f8 : si == 2 ? #322820 : si == 3 ? #241c2c : #0f1520
+    }
+    pure function ss-settings-row-bg-hover(si: int) -> brush {
+        si == 1 ? #e4eaf4 : si == 2 ? #3e342c : si == 3 ? #302438 : #1a2838
+    }
+    pure function ss-settings-row-bd(si: int) -> brush {
+        si == 1 ? #c8d4e4 : si == 2 ? #584838 : si == 3 ? #483858 : #283848
+    }
+    pure function ss-settings-row-text(si: int) -> brush {
+        si == 1 ? #243449 : si == 2 ? #e8dcd4 : si == 3 ? #dcd0e8 : #c8d8e8
+    }
+    pure function ss-settings-danger-bg-hover(si: int) -> brush {
+        si == 1 ? #fde8e8 : si == 2 ? #4a2828 : si == 3 ? #402838 : #3a1515
+    }
+    pure function ss-settings-danger-bd(si: int) -> brush {
+        si == 1 ? #e8a8a8 : si == 2 ? #8a4848 : si == 3 ? #a05878 : #5a2525
+    }
+    pure function ss-settings-danger-text(si: int) -> brush {
+        si == 1 ? #c02828 : si == 2 ? #f09888 : si == 3 ? #f088a8 : #e08080
+    }
+    pure function ss-settings-toggle-inner(si: int) -> brush {
+        si == 1 ? #f8fafc : si == 2 ? #281c18 : si == 3 ? #140f18 : #0a1018
+    }
+    pure function ss-settings-toggle-check-bd(si: int) -> brush {
+        si == 1 ? #8898b0 : si == 2 ? #786858 : si == 3 ? #786088 : #5a6a7c
+    }
+    in-out property <int> skin-index;
+    in-out property <string> launcher-title;
+    in-out property <bool> cfg-always-on-top;
+    in-out property <bool> cfg-auto-start;
+    in-out property <bool> cfg-start-minimized;
+    in-out property <bool> cfg-edge-auto-hide;
+    in-out property <bool> cfg-hide-on-launch-click;
+    in-out property <float> icon-size: 46;
+    in-out property <float> window-opacity: 100;
+    in-out property <string> background-image;
+
+    callback save-launcher-title(string);
+    callback toggle-always-on-top();
+    callback convert-absolute();
+    callback convert-relative();
+    callback open-hotkey-editor();
+    callback set-icon-size(float);
+    callback set-window-opacity(float);
+    callback set-skin(int);
+    callback toggle-auto-start();
+    callback toggle-start-minimized();
+    callback toggle-edge-auto-hide();
+    callback toggle-hide-on-launch-click();
+    callback open-background-picker();
+    callback clear-background();
+    callback open-help();
+    callback open-about();
+    callback quit-app();
+
+    Text {
+                        text: "设置";
+                        color: ss-strong-heading(skin-index);
+                        font-size: 12px;
+                        font-weight: 800;
+                    }
+
+                    VerticalLayout {
+                        width: 100%;
+                        vertical-stretch: 0;
+                        spacing: 2px;
+
+                        Text {
+                            vertical-stretch: 0;
+                            text: "窗口显示名称";
+                            color: ss-muted(skin-index);
+                            font-size: 10px;
+                        }
+
+                        Rectangle {
+                            vertical-stretch: 0;
+                            height: 30px;
+                            border-radius: 6px;
+                            background: ss-search(skin-index);
+                            border-width: 1px;
+                            border-color: ss-search-bd(skin-index);
+
+                            TextInput {
+                                x: 10px;
+                                width: parent.width - 20px;
+                                height: 100%;
+                                text <=> launcher-title;
+                                color: ss-search-input-text(skin-index);
+                                font-size: 12px;
+                                single-line: true;
+                                vertical-alignment: center;
+                                accepted => { root.save-launcher-title(self.text); }
+                            }
+                        }
+
+                        Text {
+                            vertical-stretch: 0;
+                            text: "回车保存，并同步标题栏与任务栏";
+                            color: ss-muted(skin-index);
+                            font-size: 9px;
+                        }
+                    }
+
+                    SettingsRowToggle {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        toggle-inner: ss-settings-toggle-inner(skin-index);
+                        toggle-bd: ss-settings-toggle-check-bd(skin-index);
+                        accent: ss-accent(skin-index);
+                        checked: cfg-always-on-top;
+                        label: "保持最前端显示";
+                        clicked => { root.toggle-always-on-top(); }
+                    }
+                    SettingsRowToggle {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        toggle-inner: ss-settings-toggle-inner(skin-index);
+                        toggle-bd: ss-settings-toggle-check-bd(skin-index);
+                        accent: ss-accent(skin-index);
+                        checked: cfg-auto-start;
+                        label: "开机自动启动";
+                        clicked => { root.toggle-auto-start(); }
+                    }
+                    SettingsRowToggle {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        toggle-inner: ss-settings-toggle-inner(skin-index);
+                        toggle-bd: ss-settings-toggle-check-bd(skin-index);
+                        accent: ss-accent(skin-index);
+                        checked: cfg-start-minimized;
+                        label: "启动后最小化隐藏";
+                        clicked => { root.toggle-start-minimized(); }
+                    }
+                    SettingsRowToggle {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        toggle-inner: ss-settings-toggle-inner(skin-index);
+                        toggle-bd: ss-settings-toggle-check-bd(skin-index);
+                        accent: ss-accent(skin-index);
+                        checked: cfg-edge-auto-hide;
+                        label: "窗口贴边自动隐藏";
+                        clicked => { root.toggle-edge-auto-hide(); }
+                    }
+                    SettingsRowToggle {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        toggle-inner: ss-settings-toggle-inner(skin-index);
+                        toggle-bd: ss-settings-toggle-check-bd(skin-index);
+                        accent: ss-accent(skin-index);
+                        checked: cfg-hide-on-launch-click;
+                        label: "单击运行隐藏窗口";
+                        clicked => { root.toggle-hide-on-launch-click(); }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "将所有路径转为绝对路径";
+                        clicked => {
+                            root.convert-absolute();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "将所有路径转为相对路径";
+                        clicked => {
+                            root.convert-relative();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "快捷键管理…";
+                        clicked => {
+                            root.open-hotkey-editor();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "更换背景图…";
+                        clicked => {
+                            root.open-background-picker();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        danger: true;
+                        visible: root.background-image != "未设置";
+                        label: "清除背景图";
+                        clicked => {
+                            root.clear-background();
+                        }
+                    }
+
+                    VerticalLayout {
+                        width: 100%;
+                        spacing: 3px;
+
+                        HorizontalLayout {
+                            width: 100%;
+                            Text {
+                                text: "图标大小";
+                                color: ss-muted(skin-index);
+                                font-size: 10px;
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                min-width: 40px;
+                                text: round(root.icon-size) + " px";
+                                color: ss-search-input-text(skin-index);
+                                font-size: 11px;
+                                horizontal-alignment: right;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            width: 100%;
+                            spacing: 6px;
+                            alignment: center;
+
+                            Text {
+                                text: "小";
+                                color: ss-muted(skin-index);
+                                font-size: 9px;
+                            }
+
+                            IconSizeSlider {
+                                horizontal-stretch: 1;
+                                min-width: 140px;
+                                skin-i: skin-index;
+                                value <=> root.icon-size;
+                                changed(v) => {
+                                    root.set-icon-size(v);
+                                }
+                            }
+
+                            Text {
+                                text: "大";
+                                color: ss-muted(skin-index);
+                                font-size: 9px;
+                            }
+                        }
+                    }
+
+                    VerticalLayout {
+                        width: 100%;
+                        spacing: 3px;
+
+                        HorizontalLayout {
+                            width: 100%;
+                            Text {
+                                text: "窗口透明度";
+                                color: ss-muted(skin-index);
+                                font-size: 10px;
+                                horizontal-stretch: 1;
+                            }
+                            Text {
+                                min-width: 40px;
+                                text: round(root.window-opacity) + " %";
+                                color: ss-search-input-text(skin-index);
+                                font-size: 11px;
+                                horizontal-alignment: right;
+                            }
+                        }
+
+                        HorizontalLayout {
+                            width: 100%;
+                            spacing: 6px;
+                            alignment: center;
+
+                            Text {
+                                text: "透";
+                                color: ss-muted(skin-index);
+                                font-size: 9px;
+                            }
+
+                            IconSizeSlider {
+                                horizontal-stretch: 1;
+                                min-width: 140px;
+                                skin-i: skin-index;
+                                minimum: 50;
+                                maximum: 100;
+                                value <=> root.window-opacity;
+                                changed(v) => {
+                                    root.set-window-opacity(v);
+                                }
+                            }
+
+                            Text {
+                                text: "实";
+                                color: ss-muted(skin-index);
+                                font-size: 9px;
+                            }
+                        }
+                    }
+
+                    Rectangle {
+                        width: 100%;
+                        height: 1px;
+                        background: ss-settings-row-bd(skin-index);
+                    }
+
+                    VerticalLayout {
+                        width: 100%;
+                        vertical-stretch: 0;
+                        spacing: 6px;
+
+                        VerticalLayout {
+                            vertical-stretch: 0;
+                            spacing: 3px;
+
+                            Text {
+                                text: "外观主题";
+                                color: ss-settings-section-heading(skin-index);
+                                font-size: 10px;
+                                font-weight: 800;
+                                letter-spacing: 0.5px;
+                            }
+
+                            Text {
+                                text: "选择配色与界面氛围，即刻生效";
+                                color: ss-muted(skin-index);
+                                font-size: 8px;
+                                font-weight: 500;
+                                wrap: word-wrap;
+                            }
+                        }
+
+                        VerticalLayout {
+                            width: 100%;
+                            vertical-stretch: 0;
+                            spacing: 6px;
+
+                            HorizontalLayout {
+                                width: 100%;
+                                height: 76px;
+                                spacing: 6px;
+
+                                SkinPresetChip {
+                                    panel-skin: skin-index;
+                                    selected: skin-index == 0;
+                                    preview-a: #0a1424;
+                                    preview-b: #3d78d8;
+                                    preview-c: #d4af37;
+                                    ring: #5b9dff;
+                                    title-text: "邃夜";
+                                    sub-text: "极简深色 · 沉浸专注";
+                                    clicked => {
+                                        root.skin-index = 0;
+                                        root.set-skin(0);
+                                    }
+                                }
+
+                                SkinPresetChip {
+                                    panel-skin: skin-index;
+                                    selected: skin-index == 1;
+                                    preview-a: #eef2fb;
+                                    preview-b: #2080d8;
+                                    preview-c: #98aac0;
+                                    ring: #2088e8;
+                                    title-text: "霜辉";
+                                    sub-text: "明亮通透 · 清晰读写";
+                                    clicked => {
+                                        root.skin-index = 1;
+                                        root.set-skin(1);
+                                    }
+                                }
+                            }
+
+                            HorizontalLayout {
+                                width: 100%;
+                                height: 76px;
+                                spacing: 6px;
+
+                                SkinPresetChip {
+                                    panel-skin: skin-index;
+                                    selected: skin-index == 2;
+                                    preview-a: #3a3024;
+                                    preview-b: #d08040;
+                                    preview-c: #a08060;
+                                    ring: #e0a060;
+                                    title-text: "温馨";
+                                    sub-text: "暖棕色调 · 舒适柔和";
+                                    clicked => {
+                                        root.skin-index = 2;
+                                        root.set-skin(2);
+                                    }
+                                }
+
+                                SkinPresetChip {
+                                    panel-skin: skin-index;
+                                    selected: skin-index == 3;
+                                    preview-a: #281f38;
+                                    preview-b: #c878c0;
+                                    preview-c: #9888b0;
+                                    ring: #d890e0;
+                                    title-text: "薄暮";
+                                    sub-text: "雾粉豆沙 · 柔和雅致";
+                                    clicked => {
+                                        root.skin-index = 3;
+                                        root.set-skin(3);
+                                    }
+                                }
+                            }
+                        }
+
+                    }
+
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "使用说明";
+                        clicked => {
+                            root.open-help();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "关于作者";
+                        clicked => {
+                            root.open-about();
+                        }
+                    }
+                    SettingsRowBtn {
+                        fill-idle: ss-settings-row-bg(skin-index);
+                        fill-hover: ss-settings-row-bg-hover(skin-index);
+                        stroke-bd: ss-settings-row-bd(skin-index);
+                        lbl: ss-settings-row-text(skin-index);
+                        danger-fill-hover: ss-settings-danger-bg-hover(skin-index);
+                        danger-bd: ss-settings-danger-bd(skin-index);
+                        lbl-danger: ss-settings-danger-text(skin-index);
+                        label: "退出程序";
+                        danger: true;
+                        clicked => { root.quit-app(); }
+                    }
+}

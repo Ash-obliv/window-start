@@ -1,0 +1,3 @@
+# 静态链接 MSVC 运行时，便于在无 VC++ 运行库的机器上双击运行（Win7 及以上）
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-feature=+crt-static"]
